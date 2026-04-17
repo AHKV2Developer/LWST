@@ -8,7 +8,22 @@
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 15px; margin: 0; }
         .val { font-size: 44px; font-weight: bold; color: #00ff00; }
-        .adj-btn { width: 64px; height: 64px; font-size: 26px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 10px; }
+.adj-btn { 
+            width: 60px;       /* Fixed diameter */
+            height: 60px;      /* Fixed diameter */
+            font-size: 48px;   /* Doubled (approx) from previous versions */
+            border-radius: 50%; 
+            background: #222; 
+            color: white; 
+            border: 1px solid #444; 
+            margin: 5px 15px;
+            padding: 0;        /* CRITICAL: Stops the circle from growing */
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;    /* Keeps the symbol centered */
+            vertical-align: middle;
+        }
         #status { font-size: 14px; color: #888; margin: 10px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
         #timeLeft { font-size: 52px; font-family: monospace; color: #00ff00; margin: 5px 0; }
 
