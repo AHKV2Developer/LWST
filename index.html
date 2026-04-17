@@ -2,114 +2,38 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player LIGHT v3</title>
+    <title>Sleep Player LIGHT + Queue</title>
     <link rel="manifest" href="manifest.json">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
-        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 15px; margin: 0; }
-        .val { font-size: 44px; font-weight: bold; color: #00ff00; }
-.adj-btn { 
-            width: 60px;       /* Fixed diameter */
-            height: 60px;      /* Fixed diameter */
-            font-size: 48px;   /* Doubled (approx) from previous versions */
-            border-radius: 50%; 
-            background: #222; 
-            color: white; 
-            border: 1px solid #444; 
-            margin: 5px 15px;
-            padding: 0;        /* CRITICAL: Stops the circle from growing */
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            line-height: 1;    /* Keeps the symbol centered */
-            vertical-align: middle;
-        }
-        #status { font-size: 14px; color: #888; margin: 10px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
-        #timeLeft { font-size: 52px; font-family: monospace; color: #00ff00; margin: 5px 0; }
+        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
+        #status { font-size: 13px; color: #888; margin: 5px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
+        #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
+        .val { font-size: 40px; font-weight: bold; color: #00ff00; }
+        .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
 
-.nav-grid { 
-    display: grid; 
-    grid-template-columns: repeat(3, 1fr); 
-    gap: 8px; 
-    margin: 10px 0; 
-}
-
-.nav-btn { 
-    height: 50px;       /* Keep this fixed to maintain button size */
-    width: 100%;        /* Fill the grid cell */
-    font-size: 20px;    /* Your requested font size */
-    background: #1a1a1a; 
-    border: 1px solid #333; 
-    color: #aaa; 
-    border-radius: 8px; 
-    padding: 0;         /* Remove padding to prevent it from pushing the size */
-    line-height: 1;     /* Keeps text centered vertically */
-}
+        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+        .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; padding: 0; line-height: 1; }
         
-        #trackProgress { font-size: 20px; font-family: monospace; color: #aaa; margin-bottom: 15px; }
+        #trackProgress { font-size: 18px; font-family: monospace; color: #aaa; margin-bottom: 10px; }
 
-/* MATCHED PROPORTIONS */
         #fileInput { display: none; }
-        
         .file-label { 
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-            height: 75px; /* Matched to ARM box height */
-            width: 90%;
-            margin: 8px auto;
-            padding: 0 15px; /* Vertical padding removed to let height control size */
-            border: 1px dashed #444; 
-            border-radius: 12px; 
-            cursor: pointer; 
-            background: #111;
-            font-size: 20px; /* Precise 20px request */
-            font-weight: normal; /* Non-bold */
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            box-sizing: border-box;
+            display: flex; align-items: center; justify-content: center;
+            height: 75px; width: 90%; margin: 8px auto; padding: 0 15px;
+            border: 1px dashed #444; border-radius: 12px; cursor: pointer; 
+            background: #111; font-size: 20px; font-weight: normal; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box;
         }
+        .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
 
-        .file-label.loaded {
-            border: 1px solid #2a5a2a;
-            background: #0d1a0d;
-            color: #fff;
-            font-weight: normal; /* Ensuring it stays non-bold after selection */
-        }
-
-        .arm-btn { 
-            display: block;
-            width: 90%; 
-            height: 75px; /* Explicit height to match the Select box */
-            font-size: 25px; /* 20px is 80% of this */
-            background: #1a3a1a; 
-            color: white; 
-            border: 2px solid #2a5a2a; 
-            border-radius: 12px; 
-            font-weight: bold; 
-            letter-spacing: 2px;
-            margin: 8px auto;
-            cursor: pointer;
-        }
-
-        .stop-btn { 
-            display: none;
-            width: 90%; 
-            height: 75px; 
-            font-size: 20px; 
-            background: #500; 
-            color: white; 
-            border: none; 
-            border-radius: 12px; 
-            margin: 8px auto;
-            font-weight: bold;
-        }
+        .arm-btn { display: block; width: 90%; height: 75px; font-size: 25px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; }
+        .stop-btn { display: none; width: 90%; height: 75px; font-size: 20px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div id="status">SYSTEM IDLE</div>
+    <div id="status">IDLE</div>
     <div id="timeLeft">00:00</div>
 
     <div style="display: flex; align-items: center; justify-content: center;">
@@ -129,14 +53,16 @@
 
     <div id="trackProgress">0:00 / 0:00</div>
 
-    <input type="file" id="fileInput" accept="audio/*" onchange="handleFile(this)">
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT AUDIO FILE</label>
+    <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
     <button id="startBtn" class="arm-btn" onclick="armSystem()">ARM</button>
-    <button id="stopBtn" class="stop-btn" onclick="stopSystem()">ABORT MISSION</button>
+    <button id="stopBtn" class="stop-btn" onclick="stopSystem()">STOP</button>
 
     <script>
         let player = new Audio();
+        let playlist = [];
+        let currentIndex = 0;
         let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer;
         let wakeLock = null;
 
@@ -159,30 +85,50 @@
         }
 
         function handleFile(input) {
-            const file = input.files[0];
-            if (!file) return;
+            playlist = Array.from(input.files);
+            if (playlist.length === 0) return;
             
-            player.src = URL.createObjectURL(file);
-            player.load();
+            currentIndex = 0;
+            loadTrack(currentIndex);
             
-            // Update the box style and text
             const label = document.getElementById('fileLabel');
-            label.innerText = file.name;
+            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
             label.classList.add('loaded');
-            
-            updateStatus("FILE READY", false);
+            updateStatus("READY", false);
         }
 
+        function loadTrack(index) {
+            if (index >= playlist.length) return;
+            player.src = URL.createObjectURL(playlist[index]);
+            player.load();
+        }
+
+        // AUTO-ADVANCE LOGIC
+        player.onended = function() {
+            currentIndex++;
+            if (currentIndex < playlist.length) {
+                loadTrack(currentIndex);
+                player.play();
+            } else {
+                updateStatus("END OF QUEUE", false);
+            }
+        };
+
         async function armSystem() {
-            if (!player.src) return alert("Please select a file.");
-            try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
+            if (playlist.length === 0) return alert("Select files.");
+            try { 
+                // iOS Motion Permission Request
+                if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') return alert("Motion permission required.");
+                }
+                wakeLock = await navigator.wakeLock.request('screen'); 
+            } catch(e){}
             
             player.play();
-            updateStatus("SYSTEM ARMED", true);
-            
+            updateStatus("ARMED", true);
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
-
             resetTimer();
             window.addEventListener('devicemotion', handleMotion);
             displayInterval = setInterval(updateDisplay, 1000);
@@ -220,6 +166,11 @@
             document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
             document.getElementById('trackProgress').innerText = 
                 `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+            
+            // Show current file name in the box during playback
+            if (playlist[currentIndex]) {
+                document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
+            }
         }
 
         function updateStatus(msg, active) {
@@ -239,13 +190,12 @@
             document.getElementById('stopBtn').style.display = 'none';
             updateStatus("STOPPED", false);
         }
-       if ('serviceWorker' in navigator) {
+
+        if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                .then(reg => console.log('SW registered'))
-                .catch(err => console.log('SW failed', err));
+                navigator.serviceWorker.register('./sw.js');
             });
-        }        
+        }
     </script>
 </body>
 </html>
