@@ -11,9 +11,25 @@
         .adj-btn { width: 64px; height: 64px; font-size: 26px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 10px; }
         #status { font-size: 14px; color: #888; margin: 10px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
         #timeLeft { font-size: 52px; font-family: monospace; color: #00ff00; margin: 5px 0; }
-        
-        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
-        .nav-btn { padding: 18px 5px; font-size: 14px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; }
+
+.nav-grid { 
+    display: grid; 
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 8px; 
+    margin: 10px 0; 
+}
+
+.nav-btn { 
+    height: 50px;       /* Keep this fixed to maintain button size */
+    width: 100%;        /* Fill the grid cell */
+    font-size: 20px;    /* Your requested font size */
+    background: #1a1a1a; 
+    border: 1px solid #333; 
+    color: #aaa; 
+    border-radius: 8px; 
+    padding: 0;         /* Remove padding to prevent it from pushing the size */
+    line-height: 1;     /* Keeps text centered vertically */
+}
         
         #trackProgress { font-size: 20px; font-family: monospace; color: #aaa; margin-bottom: 15px; }
 
