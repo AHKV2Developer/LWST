@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player LIGHT + Queue</title>
+    <title>Sleep Player LIGHT</title>
     <link rel="manifest" href="manifest.json">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
@@ -10,6 +10,7 @@
         #status { font-size: 13px; color: #888; margin: 5px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
         #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
         .val { font-size: 40px; font-weight: bold; color: #00ff00; }
+        
         .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
 
         .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
@@ -65,6 +66,13 @@
         let currentIndex = 0;
         let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer;
         let wakeLock = null;
+        
+        // System State Machine
+        let systemState = 'IDLE'; // 'ARMED', 'GRACE', 'IDLE'
+        let graceTimer = null;
+
+        // Init Motion Listener immediately so it is always active
+        window.addEventListener('devicemotion', handleMotion);
 
         function adjustTime(delta) {
             sleepMinutes = Math.max(1, sleepMinutes + delta);
@@ -87,12 +95,10 @@
         function handleFile(input) {
             playlist = Array.from(input.files);
             if (playlist.length === 0) return;
-            
             currentIndex = 0;
             loadTrack(currentIndex);
-            
             const label = document.getElementById('fileLabel');
-            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
+            label.innerText = playlist.length > 1 ? `${playlist.length} FILES` : playlist[0].name;
             label.classList.add('loaded');
             updateStatus("READY", false);
         }
@@ -103,7 +109,6 @@
             player.load();
         }
 
-        // AUTO-ADVANCE LOGIC
         player.onended = function() {
             currentIndex++;
             if (currentIndex < playlist.length) {
@@ -111,34 +116,48 @@
                 player.play();
             } else {
                 updateStatus("END OF QUEUE", false);
+                stopSystem();
             }
         };
 
         async function armSystem() {
             if (playlist.length === 0) return alert("Select files.");
             try { 
-                // iOS Motion Permission Request
                 if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') return alert("Motion permission required.");
+                    await DeviceMotionEvent.requestPermission();
                 }
                 wakeLock = await navigator.wakeLock.request('screen'); 
             } catch(e){}
             
+            systemState = 'ARMED';
             player.play();
             updateStatus("ARMED", true);
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
             resetTimer();
-            window.addEventListener('devicemotion', handleMotion);
             displayInterval = setInterval(updateDisplay, 1000);
         }
 
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (acc.z < -8) stopSystem();
-            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) resetTimer();
+
+            // Turn Over Gestures
+            if (acc.z < -8 && systemState === 'ARMED') {
+                stopSystem();
+            } else if (acc.z > 8 && systemState === 'GRACE') {
+                resumeSystem();
+            }
+
+            // Shake Gestures
+            let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+            if (totalAcc > 18) {
+                if (systemState === 'ARMED') {
+                    resetTimer();
+                } else if (systemState === 'GRACE') {
+                    resumeSystem();
+                }
+            }
         }
 
         function resetTimer() {
@@ -167,7 +186,6 @@
             document.getElementById('trackProgress').innerText = 
                 `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
             
-            // Show current file name in the box during playback
             if (playlist[currentIndex]) {
                 document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
             }
@@ -184,11 +202,29 @@
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
             clearTimeout(masterTimer);
-            if (wakeLock) wakeLock.release();
-            window.removeEventListener('devicemotion', handleMotion);
+            if (wakeLock) { wakeLock.release(); wakeLock = null; }
+            
+            systemState = 'GRACE';
+            updateStatus("PAUSED (5M GRACE)", false);
             document.getElementById('startBtn').style.display = 'block';
             document.getElementById('stopBtn').style.display = 'none';
-            updateStatus("STOPPED", false);
+            
+            clearTimeout(graceTimer);
+            graceTimer = setTimeout(() => {
+                systemState = 'IDLE';
+                updateStatus("IDLE", false);
+            }, 5 * 60 * 1000);
+        }
+
+        function resumeSystem() {
+            clearTimeout(graceTimer);
+            systemState = 'ARMED';
+            player.play();
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'block';
+            resetTimer();
+            displayInterval = setInterval(updateDisplay, 1000);
+            navigator.wakeLock.request('screen').then(lock => wakeLock = lock).catch(e => {});
         }
 
         if ('serviceWorker' in navigator) {
