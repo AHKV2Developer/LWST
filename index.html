@@ -2,211 +2,177 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player LIGHT</title>
+    <title>Sleep Player | State-Driven</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
-        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
-        #status { font-size: 13px; color: #888; margin: 5px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
-        #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
-        .val { font-size: 40px; font-weight: bold; color: #00ff00; }
-        .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
-        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
-        .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; padding: 0; line-height: 1; }
-        #trackProgress { font-size: 18px; font-family: monospace; color: #aaa; margin-bottom: 10px; }
-        #fileInput { display: none; }
-        .file-label { display: flex; align-items: center; justify-content: center; height: 75px; width: 90%; margin: 8px auto; padding: 0 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; font-size: 20px; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
-        #mainBtn { display: block; width: 90%; height: 75px; font-size: 25px; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; border: none; cursor: pointer; color: white; }
+        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; }
+        #status { font-size: 14px; color: #00ff00; margin-bottom: 10px; text-transform: uppercase; }
+        #timeLeft { font-size: 40px; font-family: monospace; }
+        .main-btn { width: 90%; height: 80px; font-size: 24px; border-radius: 12px; margin: 10px; border: none; cursor: pointer; color: white; background: #1a3a1a; }
+        #fileLabel { border: 1px dashed #444; padding: 15px; display: block; margin: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
 
     <div id="status">IDLE</div>
     <div id="timeLeft">00:00</div>
-
-    <div style="display: flex; align-items: center; justify-content: center;">
-        <button class="adj-btn" onclick="adjustTime(-1)">-</button>
-        <span id="timeVal" class="val">12</span>
-        <button class="adj-btn" onclick="adjustTime(1)">+</button>
-    </div>
-
-    <div class="nav-grid">
-        <button class="nav-btn" onclick="seek(-600)">-10m</button>
-        <button class="nav-btn" onclick="seek(-120)">-2m</button>
-        <button class="nav-btn" onclick="seek(-15)">-15s</button>
-        <button class="nav-btn" onclick="seek(15)">+15s</button>
-        <button class="nav-btn" onclick="seek(120)">+2m</button>
-        <button class="nav-btn" onclick="seek(600)">+10m</button>
-    </div>
-
-    <div id="trackProgress">0:00 / 0:00</div>
-
-    <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
-    
-    <button id="mainBtn" onclick="mainButtonAction()" style="background: #1a3a1a;">ARM</button>
+    <input type="file" id="fileInput" multiple style="display:none" onchange="handleFile(this)">
+    <label for="fileInput" id="fileLabel">SELECT FILES</label>
+    <button class="main-btn" id="armBtn" onclick="handleEvent('ARM_BUTTON')">ARM</button>
 
     <script>
+        // STATES
+        const State = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', FADING: 'FADING' };
+        let currentState = State.IDLE;
+        
+        // AUDIO & TIMERS
         let player = new Audio();
         let playlist = [];
         let currentIndex = 0;
-        let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer, graceTimer;
-        let isPlaying = false;
-        let isPaused = false;
-        let isFading = false;
+        let sleepMinutes = 12;
+        let masterTimer, fadeInterval, graceTimer, displayInterval, targetEndTime;
 
-        function updateMainButton() {
-            const btn = document.getElementById('mainBtn');
-            if (!isPlaying && !isPaused) { btn.innerText = "ARM"; btn.style.background = "#1a3a1a"; }
-            else if (isPlaying) { btn.innerText = "PAUSE"; btn.style.background = "#500"; }
-            else if (isPaused) { btn.innerText = "RESUME"; btn.style.background = "#3a3a1a"; }
-        }
+        // --- CORE STATE MACHINE (Maps exactly to your table) ---
+        function handleEvent(event) {
+            console.log(`Event: ${event} | Current State: ${currentState}`);
+            
+            switch (currentState) {
+                case State.IDLE:
+                    if (event === 'ARM_BUTTON' || event === 'SHAKE') {
+                        if (playlist.length === 0) return alert("Select files.");
+                        startAudio();
+                        setTimer();
+                        transition(State.PLAYING);
+                    }
+                    break;
 
-        function mainButtonAction() {
-            if (!isPlaying && !isPaused) startSystem();
-            else if (isPlaying) pauseSystem();
-            else if (isPaused) resumeSystem();
-        }
+                case State.PLAYING:
+                    if (event === 'SHAKE') {
+                        setTimer(); // Reset Timer -> PLAYING
+                    } else if (event === 'FACEDOWN') {
+                        pauseAudio();
+                        startGraceTimer(); // -> PAUSED
+                        transition(State.PAUSED);
+                    } else if (event === 'FADE_TIMEOUT') {
+                        startFade(); // -> FADING
+                        transition(State.FADING);
+                    } else if (event === 'TRACK_END') {
+                        nextTrack(); // -> PLAYING
+                    }
+                    break;
 
-        function startSystem() {
-            if (playlist.length === 0) return alert("Select files.");
-            if (typeof DeviceMotionEvent.requestPermission === 'function') DeviceMotionEvent.requestPermission().catch(console.error);
-            loadTrack(currentIndex);
-            player.play();
-            resetTimer();
-            window.addEventListener('devicemotion', handleMotion);
-            isPlaying = true;
-            displayInterval = setInterval(updateDisplay, 1000);
-            updateMainButton();
-            document.getElementById('status').innerText = "PLAYING";
-        }
+                case State.PAUSED:
+                    if (event === 'ARM_BUTTON') {
+                        resumeAudio();
+                        transition(State.PLAYING);
+                    } else if (event === 'SHAKE' || event === 'FACEUP') {
+                        clearTimeout(graceTimer);
+                        resumeAudio();
+                        setTimer(); // Reset Timer
+                        transition(State.PLAYING);
+                    } else if (event === 'GRACE_EXPIRY') {
+                        hardStop(); // -> IDLE
+                        transition(State.IDLE);
+                    }
+                    break;
 
-        function pauseSystem() {
-            player.pause();
-            isPlaying = false;
-            isPaused = true;
-            isFading = false;
-            clearTimeout(masterTimer);
-            clearInterval(fadeInterval);
-            graceTimer = setTimeout(stopSystem, 5 * 60 * 1000);
-            updateMainButton();
-            document.getElementById('status').innerText = "PAUSED";
-        }
-
-        function resumeSystem() {
-            clearTimeout(graceTimer);
-            player.play();
-            isPlaying = true;
-            isPaused = false;
-            isFading = false;
-            resetTimer(); 
-            updateMainButton();
-            document.getElementById('status').innerText = "PLAYING";
-        }
-
-        function stopSystem() {
-            player.pause();
-            player.currentTime = 0;
-            isPlaying = false;
-            isPaused = false;
-            isFading = false;
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            clearTimeout(graceTimer);
-            window.removeEventListener('devicemotion', handleMotion);
-            updateMainButton();
-            document.getElementById('status').innerText = "IDLE";
-        }
-
-        function handleMotion(e) {
-            let acc = e.accelerationIncludingGravity;
-            if (!acc) return;
-            // Face Down (Pause)
-            if (acc.z < -8 && (isPlaying || isFading)) pauseSystem();
-            // Face Up (Resume)
-            else if (acc.z > 8 && isPaused) resumeSystem();
-            // Shake (Reset Timer)
-            else if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) {
-                if (isPlaying || isPaused || isFading) {
-                    resetTimer();
-                    if (isPaused) resumeSystem();
-                }
+                case State.FADING:
+                    if (event === 'ARM_BUTTON') {
+                        hardStop(); // -> IDLE
+                        transition(State.IDLE);
+                    } else if (event === 'SHAKE' || event === 'FACEUP') {
+                        cancelFade();
+                        resumeAudio();
+                        setTimer(); // Reset Timer -> PLAYING
+                        transition(State.PLAYING);
+                    } else if (event === 'FACEDOWN') {
+                        cancelFade();
+                        pauseAudio();
+                        startGraceTimer(); // -> PAUSED
+                        transition(State.PAUSED);
+                    } else if (event === 'FADE_COMPLETION') {
+                        pauseAudio();
+                        transition(State.PAUSED); // Per your table
+                    } else if (event === 'TRACK_END') {
+                        nextTrack(); // -> PLAYING
+                    }
+                    break;
             }
         }
 
-        function resetTimer() {
+        // --- TRANSITION LOGIC ---
+        function transition(newState) {
+            currentState = newState;
+            document.getElementById('status').innerText = currentState;
+            const btn = document.getElementById('armBtn');
+            if (newState === State.PLAYING || newState === State.FADING) btn.innerText = "PAUSE";
+            else if (newState === State.PAUSED) btn.innerText = "RESUME";
+            else btn.innerText = "ARM";
+        }
+
+        // --- ACTIONS ---
+        function startAudio() {
+            if (player.src === "") player.src = URL.createObjectURL(playlist[currentIndex]);
+            player.play();
+        }
+        function pauseAudio() { player.pause(); }
+        function resumeAudio() { player.play(); }
+        function hardStop() { pauseAudio(); player.currentTime = 0; stopAllTimers(); }
+        
+        function setTimer() {
             clearTimeout(masterTimer);
-            clearInterval(fadeInterval); // Crucial: Stop the fade!
-            player.volume = 1.0;         // Crucial: Restore volume!
-            isFading = false;
-            isPlaying = true;            // Ensure state is Playing
             targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
-            masterTimer = setTimeout(startFade, (sleepMinutes * 60 * 1000) - 30000);
+            masterTimer = setTimeout(() => handleEvent('FADE_TIMEOUT'), (sleepMinutes * 60 * 1000) - 30000);
         }
 
         function startFade() {
-            isFading = true;
             let steps = 30;
             fadeInterval = setInterval(() => {
                 steps--;
                 player.volume = Math.max(0, steps / 30);
                 if (steps <= 0) {
-                    isFading = false;
                     clearInterval(fadeInterval);
-                    stopSystem();
+                    handleEvent('FADE_COMPLETION');
                 }
             }, 1000);
         }
 
-        function loadTrack(index) {
-            if (index >= playlist.length) return;
-            player.src = URL.createObjectURL(playlist[index]);
-            player.load();
+        function cancelFade() {
+            clearInterval(fadeInterval);
+            player.volume = 1.0;
         }
 
-        player.onended = function() {
+        function startGraceTimer() {
+            graceTimer = setTimeout(() => handleEvent('GRACE_EXPIRY'), 5 * 60 * 1000);
+        }
+
+        function stopAllTimers() {
+            clearTimeout(masterTimer);
+            clearTimeout(graceTimer);
+            clearInterval(fadeInterval);
+        }
+
+        function nextTrack() {
             currentIndex++;
             if (currentIndex < playlist.length) {
-                loadTrack(currentIndex);
+                player.src = URL.createObjectURL(playlist[currentIndex]);
                 player.play();
             } else {
-                stopSystem();
+                handleEvent('ARM_BUTTON'); // Loop back to IDLE
             }
-        };
-
-        function adjustTime(delta) {
-            sleepMinutes = Math.max(1, sleepMinutes + delta);
-            document.getElementById('timeVal').innerText = sleepMinutes;
         }
 
-        function updateDisplay() {
-            const diff = Math.max(0, targetEndTime - Date.now());
-            const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
-            document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-            document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
-        }
+        // --- SENSORS ---
+        window.addEventListener('devicemotion', (e) => {
+            let acc = e.accelerationIncludingGravity;
+            if (!acc) return;
+            if (acc.z < -8) handleEvent('FACEDOWN');
+            else if (acc.z > 8) handleEvent('FACEUP');
+            else if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) handleEvent('SHAKE');
+        });
 
-        function formatTime(s) {
-            if (isNaN(s)) return "0:00";
-            let m = Math.floor(s/60), sec = Math.floor(s%60);
-            return `${m}:${sec.toString().padStart(2,'0')}`;
-        }
-
-        function seek(seconds) {
-            if (!player.src) return;
-            player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
-            updateDisplay();
-        }
-
-        function handleFile(input) {
-            playlist = Array.from(input.files);
-            if (playlist.length === 0) return;
-            currentIndex = 0;
-            const label = document.getElementById('fileLabel');
-            label.innerText = playlist.length > 1 ? `${playlist.length} FILES` : playlist[0].name;
-            label.classList.add('loaded');
-        }
+        player.onended = () => handleEvent('TRACK_END');
+        function handleFile(input) { playlist = Array.from(input.files); }
     </script>
 </body>
 </html>
