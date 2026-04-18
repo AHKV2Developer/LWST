@@ -20,8 +20,8 @@
         .file-label { display: flex; align-items: center; justify-content: center; height: 75px; width: 90%; margin: 8px auto; padding: 0 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; font-size: 20px; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
         .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
         
-        .arm-btn { display: block; width: 90%; height: 75px; font-size: 25px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; }
-        .stop-btn { display: block; width: 90%; height: 75px; font-size: 20px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
+        /* Single button style - consistent */
+        #mainBtn { display: block; width: 90%; height: 75px; font-size: 25px; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; border: none; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -49,8 +49,7 @@
     <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
     <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
-    <button id="startBtn" class="arm-btn" onclick="armSystemProxy()">ARM</button>
-    <button id="stopBtn" class="stop-btn" onclick="stopSystemProxy()">STOP</button>
+    <button id="mainBtn" onclick="handleMainAction()">ARM</button>
 
     <script>
         const State = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', FADING: 'FADING' };
@@ -60,12 +59,32 @@
         let playlist = [];
         let currentIndex = 0;
         let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer, graceTimer;
-        let wakeLock = null;
 
+        // --- UI & STATE ROUTING ---
         function updateUI() {
+            const btn = document.getElementById('mainBtn');
             document.getElementById('status').innerText = currentState;
+
+            // Single Button Logic
+            if (currentState === State.IDLE) {
+                btn.innerText = "ARM";
+                btn.style.background = "#1a3a1a";
+            } else if (currentState === State.PLAYING || currentState === State.FADING) {
+                btn.innerText = "PAUSE";
+                btn.style.background = "#500";
+            } else if (currentState === State.PAUSED) {
+                btn.innerText = "RESUME";
+                btn.style.background = "#3a3a1a";
+            }
         }
 
+        function handleMainAction() {
+            if (currentState === State.IDLE) armSystem();
+            else if (currentState === State.PLAYING || currentState === State.FADING) forcePause();
+            else if (currentState === State.PAUSED) resumeSystem();
+        }
+
+        // --- Core Functions ---
         function adjustTime(delta) {
             sleepMinutes = Math.max(1, sleepMinutes + delta);
             document.getElementById('timeVal').innerText = sleepMinutes;
@@ -74,23 +93,6 @@
         function transitionTo(newState) {
             currentState = newState;
             updateUI();
-            console.log("State changed to: " + newState);
-        }
-
-        function handleFile(input) {
-            playlist = Array.from(input.files);
-            if (playlist.length === 0) return;
-            currentIndex = 0;
-            loadTrack(currentIndex);
-            const label = document.getElementById('fileLabel');
-            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
-            label.classList.add('loaded');
-        }
-
-        function loadTrack(index) {
-            if (index >= playlist.length) return;
-            player.src = URL.createObjectURL(playlist[index]);
-            player.load();
         }
 
         function armSystem() {
@@ -103,16 +105,6 @@
             window.addEventListener('devicemotion', handleMotion);
             transitionTo(State.PLAYING);
             displayInterval = setInterval(updateDisplay, 1000);
-        }
-
-        function stopSystem() {
-            player.pause();
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            clearTimeout(graceTimer);
-            window.removeEventListener('devicemotion', handleMotion);
-            transitionTo(State.IDLE);
         }
 
         function forcePause() {
@@ -128,6 +120,16 @@
             player.play();
             if (currentState === State.PAUSED) resetTimer();
             transitionTo(State.PLAYING);
+        }
+
+        function stopSystem() {
+            player.pause();
+            clearInterval(displayInterval);
+            clearInterval(fadeInterval);
+            clearTimeout(masterTimer);
+            clearTimeout(graceTimer);
+            window.removeEventListener('devicemotion', handleMotion);
+            transitionTo(State.IDLE);
         }
 
         function handleMotion(e) {
@@ -160,10 +162,26 @@
                 player.volume = Math.max(0, steps / 30);
                 if (steps <= 0) {
                     clearInterval(fadeInterval);
-                    stopSystem(); 
-                    transitionTo(State.PAUSED);
+                    stopSystem();
                 }
             }, 1000);
+        }
+
+        function handleFile(input) {
+            playlist = Array.from(input.files);
+            if (playlist.length === 0) return;
+            currentIndex = 0;
+            loadTrack(currentIndex);
+            const label = document.getElementById('fileLabel');
+            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
+            label.classList.add('loaded');
+            updateUI();
+        }
+
+        function loadTrack(index) {
+            if (index >= playlist.length) return;
+            player.src = URL.createObjectURL(playlist[index]);
+            player.load();
         }
 
         player.onended = function() {
@@ -182,7 +200,6 @@
             const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
             document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
             document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
-            if(playlist[currentIndex]) document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
         }
 
         function formatTime(s) {
@@ -195,17 +212,6 @@
             if (!player.src) return;
             player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
             updateDisplay();
-        }
-
-        // --- Proxy Logic for Buttons ---
-        function armSystemProxy() {
-            if (currentState === State.IDLE) armSystem();
-            else if (currentState === State.PAUSED) resumeSystem();
-        }
-        
-        function stopSystemProxy() {
-            if (currentState === State.PLAYING || currentState === State.FADING) forcePause();
-            else if (currentState === State.PAUSED) stopSystem();
         }
     </script>
 </body>
