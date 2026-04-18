@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player LIGHT</title>
+    <title>Sleep Player v2</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
@@ -10,24 +10,16 @@
         #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
         .val { font-size: 40px; font-weight: bold; color: #00ff00; }
         .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
-
-        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
-        .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; padding: 0; line-height: 1; }
         
-        #trackProgress { font-size: 18px; font-family: monospace; color: #aaa; margin-bottom: 10px; }
-
-        #fileInput { display: none; }
-        .file-label { 
-            display: flex; align-items: center; justify-content: center;
-            height: 75px; width: 90%; margin: 8px auto; padding: 0 15px;
-            border: 1px dashed #444; border-radius: 12px; cursor: pointer; 
-            background: #111; font-size: 20px; font-weight: normal; 
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box;
-        }
-        .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
-
-        .arm-btn { display: block; width: 90%; height: 75px; font-size: 25px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; }
-        .stop-btn { display: none; width: 90%; height: 75px; font-size: 25px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
+        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+        .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; }
+        
+        #trackProgress { font-size: 18px; font-family: monospace; color: #aaa; margin: 10px 0; }
+        .file-label { display: block; width: 90%; margin: 10px auto; padding: 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; color: #aaa; }
+        
+        .action-btn { display: none; width: 90%; height: 75px; font-size: 25px; border-radius: 12px; font-weight: bold; margin: 10px auto; border: none; }
+        #armBtn { display: block; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; }
+        #stopBtn { background: #500; color: white; }
     </style>
 </head>
 <body>
@@ -51,181 +43,134 @@
     </div>
 
     <div id="trackProgress">0:00 / 0:00</div>
-
-    <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
+    <input type="file" id="fileInput" style="display:none" multiple onchange="handleFile(this)">
     <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
-    <button id="startBtn" class="arm-btn" onclick="armSystem()">ARM</button>
-    <button id="stopBtn" class="stop-btn" onclick="stopSystem()">STOP</button>
+    <button id="armBtn" class="action-btn" onclick="handleARM()">ARM</button>
+    <button id="stopBtn" class="action-btn" onclick="handleTurnover()">PAUSE</button>
 
     <script>
-        // --- TESTING CONFIG ---
-        let sleepMinutes = 0.5; 
-        const GRACE_PERIOD_MS = 5 * 60 * 1000; 
-        const FADE_DURATION = 15; 
-        // ----------------------
-
+        const State = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', FADING: 'FADING' };
+        let currentState = State.IDLE;
+        
         let player = new Audio();
         let playlist = [];
         let currentIndex = 0;
-        let targetEndTime, displayInterval, fadeInterval, masterTimer;
+        let sleepMinutes = 0.5, targetEndTime, graceTimer, fadeInterval, uiInterval;
         let wakeLock = null;
-        let isGracePeriod = false;
-        let graceTimeout = null;
+        let lastSensorEvent = 0;
 
-        function adjustTime(delta) {
-            sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + delta) * 10) / 10);
-            document.getElementById('timeVal').innerText = sleepMinutes;
+        function transitionTo(newState) {
+            currentState = newState;
+            document.getElementById('status').innerText = newState;
+            updateUI();
         }
 
-        function seek(seconds) {
-            if (!player.src) return;
-            player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
-            updateDisplay();
+        function updateUI() {
+            document.getElementById('armBtn').style.display = (currentState === State.IDLE || currentState === State.PAUSED) ? 'block' : 'none';
+            document.getElementById('stopBtn').style.display = (currentState === State.PLAYING || currentState === State.FADING) ? 'block' : 'none';
         }
 
-        function formatTime(s) {
-            if (isNaN(s)) return "0:00";
-            let mins = Math.floor(s / 60);
-            let secs = Math.floor(s % 60);
-            return `${mins}:${secs.toString().padStart(2, '0')}`;
-        }
-
-        function handleFile(input) {
-            playlist = Array.from(input.files);
-            if (playlist.length === 0) return;
-            currentIndex = 0;
-            loadTrack(currentIndex);
-            const label = document.getElementById('fileLabel');
-            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
-            label.classList.add('loaded');
-            updateStatus("READY", false);
-        }
-
-        function loadTrack(index) {
-            if (index >= playlist.length) return;
-            player.src = URL.createObjectURL(playlist[index]);
-            player.load();
-        }
-
-        player.onended = function() {
-            currentIndex++;
-            if (currentIndex < playlist.length) {
-                loadTrack(currentIndex);
-                player.play();
-            } else {
-                stopSystem();
-            }
-        };
-
-        async function armSystem() {
+        function handleARM() {
             if (playlist.length === 0) return alert("Select files.");
-            
-            // Logic: If already in Grace Period, just resume
-            if (isGracePeriod) {
-                resumeSystem();
-                return;
+            if (currentState === State.IDLE) {
+                targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
+                requestWakeLock();
+                player.play();
+                transitionTo(State.PLAYING);
+            } else if (currentState === State.PAUSED) {
+                clearTimeout(graceTimer);
+                player.play();
+                transitionTo(State.PLAYING);
+            } else if (currentState === State.FADING) {
+                // FADING + ARM -> Stop
+                hardStop();
             }
+        }
 
-            try { 
-                if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') return alert("Motion permission required.");
+        function handleTurnover(isFaceDown) {
+            if (isFaceDown) { // FaceDown (Pause)
+                if (currentState === State.PLAYING || currentState === State.FADING) {
+                    player.pause();
+                    graceTimer = setTimeout(hardStop, 5 * 60 * 1000);
+                    transitionTo(State.PAUSED);
                 }
-                wakeLock = await navigator.wakeLock.request('screen'); 
-            } catch(e){}
-            
-            player.play();
-            updateStatus("ARMED", true);
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
-            resetTimer();
-            window.addEventListener('devicemotion', handleMotion);
-            displayInterval = setInterval(updateDisplay, 1000);
+            } else { // FaceUp (Resume)
+                if (currentState === State.PAUSED || currentState === State.FADING) {
+                    clearTimeout(graceTimer);
+                    player.play();
+                    transitionTo(State.PLAYING);
+                }
+            }
         }
 
-        function resumeSystem() {
-            clearTimeout(graceTimeout);
-            isGracePeriod = false;
-            player.play();
-            updateStatus("RESUMED", true);
-            // Toggle Buttons
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
-            resetTimer();
+        function handleShake() {
+            const now = Date.now();
+            if (now - lastSensorEvent < 1000) return;
+            lastSensorEvent = now;
+
+            if (currentState === State.IDLE) {
+                handleARM();
+            } else if (currentState === State.PLAYING) {
+                targetEndTime = now + (sleepMinutes * 60 * 1000);
+            } else if (currentState === State.PAUSED) {
+                clearTimeout(graceTimer);
+                player.play();
+                transitionTo(State.PLAYING);
+            } else if (currentState === State.FADING) {
+                clearInterval(fadeInterval);
+                player.volume = 1.0;
+                player.play();
+                transitionTo(State.PLAYING);
+            }
         }
 
-        function stopSystem() {
+        function hardStop() {
             player.pause();
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            
-            // Toggle Buttons
-            document.getElementById('startBtn').style.display = 'block';
-            document.getElementById('stopBtn').style.display = 'none';
-            
-            isGracePeriod = true;
-            updateStatus("PAUSED - GRACE", false);
-            
-            graceTimeout = setTimeout(() => {
-                isGracePeriod = false;
-                if (wakeLock) { wakeLock.release(); wakeLock = null; }
-                updateStatus("STOPPED", false);
-            }, GRACE_PERIOD_MS);
+            if (wakeLock) wakeLock.release();
+            transitionTo(State.IDLE);
         }
 
-        function handleMotion(e) {
-            let acc = e.accelerationIncludingGravity;
+        // --- SENSORS & SYSTEM ---
+        window.addEventListener('devicemotion', (e) => {
+            const acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            
-            // Shake detected (Reset or Resume)
-            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) {
-                if (isGracePeriod) resumeSystem();
-                else resetTimer();
+            // Shake
+            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) handleShake();
+            // Orientation
+            if (acc.z < -8) handleTurnover(true);
+            else if (acc.z > 8) handleTurnover(false);
+        });
+
+        setInterval(() => {
+            if (currentState === State.PLAYING && Date.now() >= targetEndTime) {
+                transitionTo(State.FADING);
+                let vol = 1.0;
+                fadeInterval = setInterval(() => {
+                    vol -= 0.1;
+                    if (vol <= 0) { player.pause(); transitionTo(State.PAUSED); clearInterval(fadeInterval); }
+                    else player.volume = vol;
+                }, 1500);
             }
-            // Turnover detected (Stop)
-            else if (acc.z < -8 && !isGracePeriod) {
-                stopSystem();
-            }
-        }
+            updateDisplay();
+        }, 1000);
 
-        function resetTimer() {
-            clearTimeout(masterTimer);
-            clearInterval(fadeInterval);
-            player.volume = 1.0;
-            targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
-            updateStatus("MONITORING", true);
-            masterTimer = setTimeout(startFade, (sleepMinutes * 60 * 1000) - (FADE_DURATION * 1000));
-        }
-
-        function startFade() {
-            updateStatus("FADING...", false);
-            let steps = FADE_DURATION;
-            fadeInterval = setInterval(() => {
-                steps--;
-                player.volume = Math.max(0, steps / FADE_DURATION);
-                if (steps <= 0) stopSystem();
-            }, 1000);
-        }
-
+        // --- HELPERS ---
         function updateDisplay() {
-            const diff = Math.max(0, targetEndTime - Date.now());
-            const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
-            document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-            document.getElementById('trackProgress').innerText = 
-                `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
-            
-            if (playlist[currentIndex]) {
-                document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
+            if(currentState === State.PLAYING || currentState === State.FADING) {
+                const diff = Math.max(0, targetEndTime - Date.now());
+                document.getElementById('timeLeft').innerText = `${Math.floor(diff/60000)}:${Math.floor((diff%60000)/1000).toString().padStart(2,'0')}`;
             }
+            document.getElementById('trackProgress').innerText = `${Math.floor(player.currentTime/60)}:${Math.floor(player.currentTime%60).toString().padStart(2,'0')} / ...`;
         }
-
-        function updateStatus(msg, active) {
-            const s = document.getElementById('status');
-            s.innerText = msg;
-            s.style.color = active ? "#00ff00" : "#888";
+        
+        async function requestWakeLock() {
+            try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
         }
+        
+        function handleFile(input) { playlist = Array.from(input.files); player.src = URL.createObjectURL(playlist[0]); }
+        function adjustTime(d) { sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + d)*10)/10); document.getElementById('timeVal').innerText = sleepMinutes; }
+        function seek(s) { player.currentTime += s; }
     </script>
 </body>
 </html>
