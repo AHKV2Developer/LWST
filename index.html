@@ -85,6 +85,8 @@
         }
 
         function stopSystem() {
+            if (player.paused) return; // Prevent double firing
+            
             player.pause();
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
@@ -105,9 +107,13 @@
         }
 
         function resumeSystem() {
+            if (!player.paused) return;
+            
             clearTimeout(graceTimeout);
             isGracePeriod = false;
-            player.play();
+            player.volume = 1.0; // Reset volume
+            player.play();       // Pure resume
+            
             updateStatus("RESUMED", true);
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
