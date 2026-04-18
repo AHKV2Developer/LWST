@@ -8,7 +8,7 @@
   "theme_color": "#121212",
   "icons": [
     {
-      "src": "/Pythag%20249x249.png",
+      "src": "Pythag%20249x249.png",
       "sizes": "249x249",
       "type": "image/png"
     }
