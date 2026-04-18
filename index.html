@@ -44,7 +44,7 @@
     <div id="trackProgress">0:00 / 0:00</div>
 
     <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES 1</label>
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
     <button id="startBtn" class="arm-btn" onclick="armSystem()">ARM</button>
     <button id="stopBtn" class="stop-btn" onclick="stopSystem()">STOP</button>
@@ -105,6 +105,7 @@
         };
 
         async function armSystem() {
+            console.log("Arming system...");
             if (playlist.length === 0) return alert("Select files.");
             try { 
                 if (typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -116,6 +117,7 @@
             
             player.play();
             updateStatus("ARMED", true);
+            isGracePeriod = false; // Reset grace state
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
             resetTimer();
@@ -124,6 +126,7 @@
         }
 
         function resumeSystem() {
+            console.log("Resuming from grace...");
             clearTimeout(graceTimeout);
             isGracePeriod = false;
             player.play();
@@ -137,14 +140,8 @@
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            
-            // Stop logic
             if (acc.z < -8 && !isGracePeriod) stopSystem();
-            
-            // Resume logic (Grace period only)
             if (acc.z > 8 && isGracePeriod) resumeSystem();
-            
-            // Movement reset logic
             if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) resetTimer();
         }
 
@@ -171,9 +168,7 @@
             const diff = Math.max(0, targetEndTime - Date.now());
             const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
             document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-            document.getElementById('trackProgress').innerText = 
-                `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
-            if (playlist[currentIndex]) document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
+            document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
         }
 
         function updateStatus(msg, active) {
@@ -183,28 +178,28 @@
         }
 
         function stopSystem() {
+            console.log("Stop System Triggered");
+            // 1. Force Logic First
             player.pause();
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
             clearTimeout(masterTimer);
             if (wakeLock) { wakeLock.release(); wakeLock = null; }
+            
+            // 2. Set Grace Period
+            isGracePeriod = true;
+            updateStatus("PAUSED - GRACE PERIOD", false);
+            
+            // 3. UI Changes Last
             document.getElementById('startBtn').style.display = 'block';
             document.getElementById('stopBtn').style.display = 'none';
             
-            updateStatus("PAUSED - GRACE PERIOD", false);
-            isGracePeriod = true;
-            
-            // Grace period: 5 minutes (300,000ms)
+            // 4. Timeout to finish grace
+            clearTimeout(graceTimeout);
             graceTimeout = setTimeout(() => {
                 isGracePeriod = false;
                 updateStatus("STOPPED", false);
             }, 300000);
-        }
-
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js');
-            });
         }
     </script>
 </body>
