@@ -6,12 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
+        /* Stop the "flash" on tap */
+        button { -webkit-tap-highlight-color: transparent; outline: none; }
+        
         #status { font-size: 13px; color: #888; margin: 5px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
         #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
         .val { font-size: 40px; font-weight: bold; color: #00ff00; }
         
         .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
-
         .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
         .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; padding: 0; line-height: 1; }
         
@@ -54,7 +56,7 @@
     <div id="trackProgress">0:00 / 0:00</div>
 
     <input type="file" id="fileInput" accept="audio/*" multiple>
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES 3</label>
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
     <button id="startBtn" class="arm-btn" type="button">ARM</button>
     <button id="stopBtn" class="stop-btn" type="button">STOP</button>
@@ -70,18 +72,23 @@
 
         // --- Initialization and Event Binding ---
         window.addEventListener('DOMContentLoaded', () => {
-            // Button Listeners
-            document.getElementById('minusBtn').addEventListener('click', () => adjustTime(-1));
-            document.getElementById('plusBtn').addEventListener('click', () => adjustTime(1));
-            document.getElementById('s10m').addEventListener('click', () => seek(-600));
-            document.getElementById('s2m').addEventListener('click', () => seek(-120));
-            document.getElementById('s15s').addEventListener('click', () => seek(-15));
-            document.getElementById('a15s').addEventListener('click', () => seek(15));
-            document.getElementById('a2m').addEventListener('click', () => seek(120));
-            document.getElementById('a10m').addEventListener('click', () => seek(600));
+            document.getElementById('minusBtn').addEventListener('click', (e) => { e.preventDefault(); adjustTime(-1); });
+            document.getElementById('plusBtn').addEventListener('click', (e) => { e.preventDefault(); adjustTime(1); });
+            document.getElementById('s10m').addEventListener('click', (e) => { e.preventDefault(); seek(-600); });
+            document.getElementById('s2m').addEventListener('click', (e) => { e.preventDefault(); seek(-120); });
+            document.getElementById('s15s').addEventListener('click', (e) => { e.preventDefault(); seek(-15); });
+            document.getElementById('a15s').addEventListener('click', (e) => { e.preventDefault(); seek(15); });
+            document.getElementById('a2m').addEventListener('click', (e) => { e.preventDefault(); seek(120); });
+            document.getElementById('a10m').addEventListener('click', (e) => { e.preventDefault(); seek(600); });
             document.getElementById('fileInput').addEventListener('change', (e) => handleFile(e.target));
-            document.getElementById('startBtn').addEventListener('click', armSystem);
-            document.getElementById('stopBtn').addEventListener('click', stopSystem);
+            
+            // Critical Click Bindings
+            document.getElementById('startBtn').addEventListener('click', (e) => { e.preventDefault(); armSystem(); });
+            document.getElementById('stopBtn').addEventListener('click', (e) => { 
+                e.preventDefault(); 
+                e.stopPropagation(); 
+                emergencyKillSwitch(); 
+            });
         });
 
         window.addEventListener('devicemotion', handleMotion);
@@ -129,7 +136,7 @@
                 player.play();
             } else {
                 updateStatus("END OF QUEUE", false);
-                stopSystem();
+                emergencyKillSwitch();
             }
         };
 
@@ -154,7 +161,7 @@
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (acc.z < -8 && systemState === 'ARMED') stopSystem();
+            if (acc.z < -8 && systemState === 'ARMED') emergencyKillSwitch();
             else if (acc.z > 8 && systemState === 'GRACE') resumeSystem();
 
             let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
@@ -179,7 +186,7 @@
             fadeInterval = setInterval(() => {
                 steps--;
                 player.volume = Math.max(0, steps / 30);
-                if (steps <= 0) stopSystem();
+                if (steps <= 0) emergencyKillSwitch();
             }, 1000);
         }
 
@@ -198,15 +205,14 @@
             s.style.color = active ? "#00ff00" : "#888";
         }
 
-        function stopSystem() {
+        // Renamed to force fresh binding
+        function emergencyKillSwitch() {
             try { player.pause(); } catch(e) {}
-            
             try {
                 clearInterval(displayInterval);
                 clearInterval(fadeInterval);
                 clearTimeout(masterTimer);
             } catch(e) {}
-
             try {
                 if (wakeLock) { wakeLock.release(); wakeLock = null; }
             } catch(e) {}
