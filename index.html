@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
-        /* Stop the "flash" on tap */
         button { -webkit-tap-highlight-color: transparent; outline: none; }
         
         #status { font-size: 13px; color: #888; margin: 5px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
@@ -29,8 +28,14 @@
         }
         .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
 
-        .arm-btn { display: block; width: 90%; height: 75px; font-size: 25px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; }
-        .stop-btn { display: none; width: 90%; height: 75px; font-size: 20px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
+        /* Unified Button Styles */
+        #actionBtn { 
+            display: block; width: 90%; height: 75px; font-size: 25px; 
+            margin: 8px auto; border-radius: 12px; font-weight: bold; 
+            letter-spacing: 2px; border: none; cursor: pointer;
+        }
+        .btn-arm { background: #1a3a1a; color: white; border: 2px solid #2a5a2a !important; }
+        .btn-stop { background: #500; color: white; }
     </style>
 </head>
 <body>
@@ -56,10 +61,9 @@
     <div id="trackProgress">0:00 / 0:00</div>
 
     <input type="file" id="fileInput" accept="audio/*" multiple>
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES 4</label>
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES 5</label>
     
-    <button id="startBtn" class="arm-btn" type="button">ARM</button>
-    <button id="stopBtn" class="stop-btn" type="button">STOP</button>
+    <button id="actionBtn" class="btn-arm" type="button">ARM</button>
 
     <script>
         let player = new Audio();
@@ -70,7 +74,7 @@
         let systemState = 'IDLE'; 
         let graceTimer = null;
 
-        // --- Initialization and Event Binding ---
+        // Initialization
         window.addEventListener('DOMContentLoaded', () => {
             document.getElementById('minusBtn').addEventListener('click', (e) => { e.preventDefault(); adjustTime(-1); });
             document.getElementById('plusBtn').addEventListener('click', (e) => { e.preventDefault(); adjustTime(1); });
@@ -82,16 +86,31 @@
             document.getElementById('a10m').addEventListener('click', (e) => { e.preventDefault(); seek(600); });
             document.getElementById('fileInput').addEventListener('change', (e) => handleFile(e.target));
             
-            // Critical Click Bindings
-            document.getElementById('startBtn').addEventListener('click', (e) => { e.preventDefault(); armSystem(); });
-            document.getElementById('stopBtn').addEventListener('click', (e) => { 
-                e.preventDefault(); 
-                e.stopPropagation(); 
-                emergencyKillSwitch(); 
-            });
+            // Unified Event Listener
+            document.getElementById('actionBtn').addEventListener('click', handleActionClick);
         });
 
         window.addEventListener('devicemotion', handleMotion);
+
+        function handleActionClick(e) {
+            e.preventDefault();
+            if (systemState === 'ARMED') {
+                emergencyKillSwitch();
+            } else {
+                armSystem();
+            }
+        }
+
+        function updateUI(state) {
+            const btn = document.getElementById('actionBtn');
+            if (state === 'ARMED') {
+                btn.innerText = "STOP";
+                btn.className = "btn-stop";
+            } else {
+                btn.innerText = "ARM";
+                btn.className = "btn-arm";
+            }
+        }
 
         function adjustTime(delta) {
             sleepMinutes = Math.max(1, sleepMinutes + delta);
@@ -152,8 +171,7 @@
             systemState = 'ARMED';
             player.play();
             updateStatus("ARMED", true);
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
+            updateUI('ARMED');
             resetTimer();
             displayInterval = setInterval(updateDisplay, 1000);
         }
@@ -205,7 +223,6 @@
             s.style.color = active ? "#00ff00" : "#888";
         }
 
-        // Renamed to force fresh binding
         function emergencyKillSwitch() {
             try { player.pause(); } catch(e) {}
             try {
@@ -219,8 +236,7 @@
             
             systemState = 'GRACE';
             updateStatus("PAUSED (5M GRACE)", false);
-            document.getElementById('startBtn').style.display = 'block';
-            document.getElementById('stopBtn').style.display = 'none';
+            updateUI('IDLE');
             
             clearTimeout(graceTimer);
             graceTimer = setTimeout(() => {
@@ -233,12 +249,15 @@
             clearTimeout(graceTimer);
             systemState = 'ARMED';
             player.play();
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
+            updateUI('ARMED');
             resetTimer();
             displayInterval = setInterval(updateDisplay, 1000);
             try { navigator.wakeLock.request('screen').then(lock => wakeLock = lock); } catch(e){}
         }
+
+        window.onerror = function(msg, url, line) {
+           alert("Error: " + msg + "\nLine: " + line);
+        };
     </script>
 </body>
 </html>
