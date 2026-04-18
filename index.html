@@ -2,53 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player | State-Driven</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Sleep Player | Verified</title>
     <style>
-        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; }
-        #status { font-size: 14px; color: #00ff00; margin-bottom: 10px; text-transform: uppercase; }
-        #timeLeft { font-size: 40px; font-family: monospace; }
-        .main-btn { width: 90%; height: 80px; font-size: 24px; border-radius: 12px; margin: 10px; border: none; cursor: pointer; color: white; background: #1a3a1a; }
-        #fileLabel { border: 1px dashed #444; padding: 15px; display: block; margin: 10px; cursor: pointer; }
+        body { font-family: sans-serif; background: #000; color: #fff; text-align: center; padding: 20px; }
+        #status { font-size: 20px; color: #0f0; margin-bottom: 20px; text-transform: uppercase; }
+        .btn { width: 100%; max-width: 300px; height: 100px; font-size: 30px; margin-top: 20px; }
     </style>
 </head>
 <body>
-
     <div id="status">IDLE</div>
-    <div id="timeLeft">00:00</div>
-    <input type="file" id="fileInput" multiple style="display:none" onchange="handleFile(this)">
-    <label for="fileInput" id="fileLabel">SELECT FILES</label>
-    <button class="main-btn" id="armBtn" onclick="handleEvent('ARM_BUTTON')">ARM</button>
+    <div id="timer">00:00</div>
+    <input type="file" id="fileInput" multiple onchange="loadFiles(this)">
+    <button class="btn" id="armBtn" onclick="dispatch('BUTTON_CLICK')">ARM</button>
 
     <script>
-        // STATES
         const State = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', FADING: 'FADING' };
         let currentState = State.IDLE;
         
-        // AUDIO & TIMERS
         let player = new Audio();
-        let playlist = [];
-        let currentIndex = 0;
-        let sleepMinutes = 12;
-        let masterTimer, fadeInterval, graceTimer, displayInterval, targetEndTime;
+        let playlist = [], currentIndex = 0, sleepMinutes = 12;
+        let masterTimer, fadeInterval, graceTimer;
 
-        // --- CORE STATE MACHINE (Maps exactly to your table) ---
-        function handleEvent(event) {
-            console.log(`Event: ${event} | Current State: ${currentState}`);
+        // THE CENTRAL LOGIC (Strictly mapping to your table)
+        function dispatch(event) {
+            console.log(`State: ${currentState} | Event: ${event}`);
             
             switch (currentState) {
                 case State.IDLE:
-                    if (event === 'ARM_BUTTON' || event === 'SHAKE') {
-                        if (playlist.length === 0) return alert("Select files.");
-                        startAudio();
-                        setTimer();
+                    if (event === 'BUTTON_CLICK' || event === 'SHAKE') {
+                        startSystem();
                         transition(State.PLAYING);
                     }
                     break;
 
                 case State.PLAYING:
                     if (event === 'SHAKE') {
-                        setTimer(); // Reset Timer -> PLAYING
+                        resetTimer(); // -> PLAYING
                     } else if (event === 'FACEDOWN') {
                         pauseAudio();
                         startGraceTimer(); // -> PAUSED
@@ -59,16 +48,17 @@
                     } else if (event === 'TRACK_END') {
                         nextTrack(); // -> PLAYING
                     }
+                    // BUTTON_CLICK is IGNORED here per your table
                     break;
 
                 case State.PAUSED:
-                    if (event === 'ARM_BUTTON') {
-                        resumeAudio();
+                    if (event === 'BUTTON_CLICK') {
+                        resumeAudio(); // -> PLAYING
                         transition(State.PLAYING);
                     } else if (event === 'SHAKE' || event === 'FACEUP') {
                         clearTimeout(graceTimer);
                         resumeAudio();
-                        setTimer(); // Reset Timer
+                        resetTimer(); // -> PLAYING
                         transition(State.PLAYING);
                     } else if (event === 'GRACE_EXPIRY') {
                         hardStop(); // -> IDLE
@@ -77,13 +67,13 @@
                     break;
 
                 case State.FADING:
-                    if (event === 'ARM_BUTTON') {
+                    if (event === 'BUTTON_CLICK') {
                         hardStop(); // -> IDLE
                         transition(State.IDLE);
                     } else if (event === 'SHAKE' || event === 'FACEUP') {
                         cancelFade();
                         resumeAudio();
-                        setTimer(); // Reset Timer -> PLAYING
+                        resetTimer(); // -> PLAYING
                         transition(State.PLAYING);
                     } else if (event === 'FACEDOWN') {
                         cancelFade();
@@ -91,8 +81,8 @@
                         startGraceTimer(); // -> PAUSED
                         transition(State.PAUSED);
                     } else if (event === 'FADE_COMPLETION') {
-                        pauseAudio();
-                        transition(State.PAUSED); // Per your table
+                        pauseAudio(); // -> PAUSED
+                        transition(State.PAUSED);
                     } else if (event === 'TRACK_END') {
                         nextTrack(); // -> PLAYING
                     }
@@ -100,79 +90,62 @@
             }
         }
 
-        // --- TRANSITION LOGIC ---
+        // TRANSITION HELPER
         function transition(newState) {
             currentState = newState;
             document.getElementById('status').innerText = currentState;
-            const btn = document.getElementById('armBtn');
-            if (newState === State.PLAYING || newState === State.FADING) btn.innerText = "PAUSE";
-            else if (newState === State.PAUSED) btn.innerText = "RESUME";
-            else btn.innerText = "ARM";
         }
 
-        // --- ACTIONS ---
-        function startAudio() {
-            if (player.src === "") player.src = URL.createObjectURL(playlist[currentIndex]);
+        // ACTION FUNCTIONS
+        function startSystem() {
+            if (playlist.length === 0) return alert("Files?");
+            player.src = URL.createObjectURL(playlist[currentIndex]);
             player.play();
+            resetTimer();
         }
+
+        function resetTimer() {
+            clearTimeout(masterTimer);
+            masterTimer = setTimeout(() => dispatch('FADE_TIMEOUT'), (sleepMinutes * 60 * 1000) - 30000);
+        }
+
         function pauseAudio() { player.pause(); }
         function resumeAudio() { player.play(); }
-        function hardStop() { pauseAudio(); player.currentTime = 0; stopAllTimers(); }
+        function hardStop() { player.pause(); player.currentTime = 0; clearTimeout(masterTimer); }
         
-        function setTimer() {
-            clearTimeout(masterTimer);
-            targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
-            masterTimer = setTimeout(() => handleEvent('FADE_TIMEOUT'), (sleepMinutes * 60 * 1000) - 30000);
-        }
-
         function startFade() {
             let steps = 30;
             fadeInterval = setInterval(() => {
                 steps--;
                 player.volume = Math.max(0, steps / 30);
-                if (steps <= 0) {
-                    clearInterval(fadeInterval);
-                    handleEvent('FADE_COMPLETION');
-                }
+                if (steps <= 0) { clearInterval(fadeInterval); dispatch('FADE_COMPLETION'); }
             }, 1000);
         }
 
-        function cancelFade() {
-            clearInterval(fadeInterval);
-            player.volume = 1.0;
-        }
-
-        function startGraceTimer() {
-            graceTimer = setTimeout(() => handleEvent('GRACE_EXPIRY'), 5 * 60 * 1000);
-        }
-
-        function stopAllTimers() {
-            clearTimeout(masterTimer);
-            clearTimeout(graceTimer);
-            clearInterval(fadeInterval);
-        }
-
+        function cancelFade() { clearInterval(fadeInterval); player.volume = 1.0; }
+        function startGraceTimer() { graceTimer = setTimeout(() => dispatch('GRACE_EXPIRY'), 300000); }
+        
         function nextTrack() {
             currentIndex++;
             if (currentIndex < playlist.length) {
                 player.src = URL.createObjectURL(playlist[currentIndex]);
                 player.play();
             } else {
-                handleEvent('ARM_BUTTON'); // Loop back to IDLE
+                transition(State.IDLE);
             }
         }
 
-        // --- SENSORS ---
+        // SENSORS
         window.addEventListener('devicemotion', (e) => {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (acc.z < -8) handleEvent('FACEDOWN');
-            else if (acc.z > 8) handleEvent('FACEUP');
-            else if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) handleEvent('SHAKE');
+            if (acc.z < -8) dispatch('FACEDOWN');
+            else if (acc.z > 8) dispatch('FACEUP');
+            else if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) dispatch('SHAKE');
         });
-
-        player.onended = () => handleEvent('TRACK_END');
-        function handleFile(input) { playlist = Array.from(input.files); }
+        
+        player.onended = () => dispatch('TRACK_END');
+        function loadFiles(input) { playlist = Array.from(input.files); }
     </script>
 </body>
 </html>
