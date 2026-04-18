@@ -20,8 +20,7 @@
         .file-label { display: flex; align-items: center; justify-content: center; height: 75px; width: 90%; margin: 8px auto; padding: 0 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; font-size: 20px; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
         .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
         
-        /* Single button style - consistent */
-        #mainBtn { display: block; width: 90%; height: 75px; font-size: 25px; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; border: none; cursor: pointer; }
+        #mainBtn { display: block; width: 90%; height: 75px; font-size: 25px; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; border: none; cursor: pointer; color: white; }
     </style>
 </head>
 <body>
@@ -49,101 +48,92 @@
     <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
     <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
-    <button id="mainBtn" onclick="handleMainAction()">ARM</button>
+    <button id="mainBtn" onclick="mainButtonAction()" style="background: #1a3a1a;">ARM</button>
 
     <script>
-        const State = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', FADING: 'FADING' };
-        let currentState = State.IDLE;
-        
         let player = new Audio();
         let playlist = [];
         let currentIndex = 0;
         let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer, graceTimer;
+        let savedTime = 0; // The core of the new strategy
+        let isPlaying = false;
+        let isPaused = false;
 
-        // --- UI & STATE ROUTING ---
-        function updateUI() {
+        // UI Updates
+        function updateMainButton() {
             const btn = document.getElementById('mainBtn');
-            document.getElementById('status').innerText = currentState;
-
-            // Single Button Logic
-            if (currentState === State.IDLE) {
-                btn.innerText = "ARM";
-                btn.style.background = "#1a3a1a";
-            } else if (currentState === State.PLAYING || currentState === State.FADING) {
-                btn.innerText = "PAUSE";
-                btn.style.background = "#500";
-            } else if (currentState === State.PAUSED) {
-                btn.innerText = "RESUME";
-                btn.style.background = "#3a3a1a";
-            }
+            if (!isPlaying && !isPaused) { btn.innerText = "ARM"; btn.style.background = "#1a3a1a"; }
+            else if (isPlaying) { btn.innerText = "PAUSE"; btn.style.background = "#500"; }
+            else if (isPaused) { btn.innerText = "RESUME"; btn.style.background = "#3a3a1a"; }
         }
 
-        function handleMainAction() {
-            if (currentState === State.IDLE) armSystem();
-            else if (currentState === State.PLAYING || currentState === State.FADING) forcePause();
-            else if (currentState === State.PAUSED) resumeSystem();
+        // Logic Entry Point
+        function mainButtonAction() {
+            if (!isPlaying && !isPaused) startSystem();
+            else if (isPlaying) pauseSystem();
+            else if (isPaused) resumeSystem();
         }
 
-        // --- Core Functions ---
-        function adjustTime(delta) {
-            sleepMinutes = Math.max(1, sleepMinutes + delta);
-            document.getElementById('timeVal').innerText = sleepMinutes;
-        }
-
-        function transitionTo(newState) {
-            currentState = newState;
-            updateUI();
-        }
-
-        function armSystem() {
+        function startSystem() {
             if (playlist.length === 0) return alert("Select files.");
-            if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                DeviceMotionEvent.requestPermission().catch(console.error);
-            }
+            savedTime = 0;
+            if (typeof DeviceMotionEvent.requestPermission === 'function') DeviceMotionEvent.requestPermission().catch(console.error);
+            loadTrack(currentIndex);
             player.play();
             resetTimer();
             window.addEventListener('devicemotion', handleMotion);
-            transitionTo(State.PLAYING);
+            isPlaying = true;
             displayInterval = setInterval(updateDisplay, 1000);
+            updateMainButton();
+            document.getElementById('status').innerText = "PLAYING";
         }
 
-        function forcePause() {
+        function pauseSystem() {
+            savedTime = player.currentTime; // Save the spot!
             player.pause();
+            isPlaying = false;
+            isPaused = true;
             clearTimeout(masterTimer);
-            clearTimeout(fadeInterval);
-            graceTimer = setTimeout(stopSystem, 5 * 60 * 1000); 
-            transitionTo(State.PAUSED);
+            clearInterval(fadeInterval);
+            // 5-min grace timer to hard stop
+            graceTimer = setTimeout(stopSystem, 5 * 60 * 1000);
+            updateMainButton();
+            document.getElementById('status').innerText = "PAUSED";
         }
 
         function resumeSystem() {
             clearTimeout(graceTimer);
+            player.currentTime = savedTime; // Jump to the spot!
             player.play();
-            if (currentState === State.PAUSED) resetTimer();
-            transitionTo(State.PLAYING);
+            isPlaying = true;
+            isPaused = false;
+            resetTimer(); // Restart the sleep timer
+            updateMainButton();
+            document.getElementById('status').innerText = "PLAYING";
         }
 
         function stopSystem() {
             player.pause();
+            isPlaying = false;
+            isPaused = false;
+            savedTime = 0; // Wipe the spot
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
             clearTimeout(masterTimer);
             clearTimeout(graceTimer);
             window.removeEventListener('devicemotion', handleMotion);
-            transitionTo(State.IDLE);
+            updateMainButton();
+            document.getElementById('status').innerText = "IDLE";
         }
 
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (acc.z < -8 && (currentState === State.PLAYING || currentState === State.FADING)) {
-                forcePause();
-            } else if (acc.z > 8 && currentState === State.PAUSED) {
-                resumeSystem();
-            } else if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) {
-                if (currentState === State.PLAYING || currentState === State.FADING || currentState === State.PAUSED) {
-                    resetTimer();
-                    if (currentState === State.PAUSED) resumeSystem();
-                }
+            if (acc.z < -8 && isPlaying) pauseSystem();
+            else if (acc.z > 8 && isPaused) resumeSystem();
+            else if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) {
+                if (isPlaying || isPaused) resetTimer();
+                if (isPaused) resumeSystem();
             }
         }
 
@@ -155,7 +145,6 @@
         }
 
         function startFade() {
-            transitionTo(State.FADING);
             let steps = 30;
             fadeInterval = setInterval(() => {
                 steps--;
@@ -171,11 +160,9 @@
             playlist = Array.from(input.files);
             if (playlist.length === 0) return;
             currentIndex = 0;
-            loadTrack(currentIndex);
             const label = document.getElementById('fileLabel');
-            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
+            label.innerText = playlist.length > 1 ? `${playlist.length} FILES` : playlist[0].name;
             label.classList.add('loaded');
-            updateUI();
         }
 
         function loadTrack(index) {
@@ -187,13 +174,18 @@
         player.onended = function() {
             currentIndex++;
             if (currentIndex < playlist.length) {
+                savedTime = 0; // Reset saved time for new track
                 loadTrack(currentIndex);
                 player.play();
-                if (currentState === State.FADING) player.volume = Math.max(0, player.volume);
             } else {
                 stopSystem();
             }
         };
+
+        function adjustTime(delta) {
+            sleepMinutes = Math.max(1, sleepMinutes + delta);
+            document.getElementById('timeVal').innerText = sleepMinutes;
+        }
 
         function updateDisplay() {
             const diff = Math.max(0, targetEndTime - Date.now());
@@ -211,6 +203,7 @@
         function seek(seconds) {
             if (!player.src) return;
             player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
+            savedTime = player.currentTime; // Sync saved time on manual seek
             updateDisplay();
         }
     </script>
