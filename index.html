@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>Sleep Player LIGHT</title>
-    <link rel="manifest" href="manifest.json">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
@@ -55,7 +54,7 @@
     <div id="trackProgress">0:00 / 0:00</div>
 
     <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES 1</label>
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
     <button id="startBtn" class="arm-btn" onclick="armSystem()">ARM</button>
     <button id="stopBtn" class="stop-btn" onclick="stopSystem()">STOP</button>
@@ -183,14 +182,20 @@
             s.style.color = active ? "#00ff00" : "#888";
         }
 
+        // DEFENSIVE STOP SYSTEM
         function stopSystem() {
-            // FIXED: Removed player.currentTime = 0;
-            player.pause(); 
+            console.log("Stop requested");
+            try { player.pause(); } catch(e) { console.error("Pause fail", e); }
             
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            if (wakeLock) { wakeLock.release(); wakeLock = null; }
+            try {
+                clearInterval(displayInterval);
+                clearInterval(fadeInterval);
+                clearTimeout(masterTimer);
+            } catch(e) { console.error("Timer fail", e); }
+
+            try {
+                if (wakeLock) { wakeLock.release(); wakeLock = null; }
+            } catch(e) { console.error("WakeLock fail", e); }
             
             systemState = 'GRACE';
             updateStatus("PAUSED (5M GRACE)", false);
@@ -207,19 +212,27 @@
         function resumeSystem() {
             clearTimeout(graceTimer);
             systemState = 'ARMED';
-            player.play(); // Resumes from previous spot automatically
+            player.play();
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
             resetTimer();
             displayInterval = setInterval(updateDisplay, 1000);
-            navigator.wakeLock.request('screen').then(lock => wakeLock = lock).catch(e => {});
+            try { navigator.wakeLock.request('screen').then(lock => wakeLock = lock); } catch(e){}
         }
 
-        //if ('serviceWorker' in navigator) {
-        //    window.addEventListener('load', () => {
-        //        navigator.serviceWorker.register('./sw.js');
-        //    });
-        //}
+        // SERVICE WORKER COMMENTED OUT TO PREVENT CACHING ISSUES
+        /*
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js');
+            });
+        }
+        */
+
+        // DIAGNOSTIC ERROR CATCHER
+        window.onerror = function(msg, url, line) {
+           alert("Error: " + msg + "\nLine: " + line);
+        };
     </script>
 </body>
 </html>
