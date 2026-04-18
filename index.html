@@ -43,7 +43,7 @@
     <div id="trackProgress">0:00 / 0:00</div>
 
     <input type="file" id="fileInput" accept="audio/*" multiple onchange="handleFile(this)">
-    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES 1</label>
+    <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
     <button id="startBtn" class="arm-btn" onclick="armSystem()">ARM</button>
     <button id="stopBtn" class="stop-btn" onclick="stopSystem()">STOP</button>
@@ -78,14 +78,12 @@
             s.style.color = active ? "#00ff00" : "#888";
         }
 
-        // --- LINEAR STOP (Unbreakable) ---
         function stopSystem() {
             player.pause();
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
             clearTimeout(masterTimer);
             if (wakeLock) { wakeLock.release(); wakeLock = null; }
-            window.removeEventListener('devicemotion', handleMotion);
             
             document.getElementById('startBtn').style.display = 'block';
             document.getElementById('stopBtn').style.display = 'none';
@@ -97,19 +95,16 @@
             graceTimeout = setTimeout(() => {
                 isGracePeriod = false;
                 updateStatus("STOPPED", false);
-            }, 300000); // 5 minutes grace
+            }, 300000); 
         }
 
-        // --- ARM / RESUME ---
         async function armSystem() {
             if (playlist.length === 0) return alert("Select files.");
 
             if (isGracePeriod) {
-                // Resume Logic
                 clearTimeout(graceTimeout);
                 isGracePeriod = false;
             } else {
-                // Fresh Start
                 try { 
                     if (typeof DeviceMotionEvent.requestPermission === 'function') {
                         const permission = await DeviceMotionEvent.requestPermission();
@@ -132,8 +127,22 @@
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (acc.z < -8) stopSystem();
-            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) resetTimer();
+            
+            // 1. STOP: Only if face down AND NOT in grace period
+            if (acc.z < -8 && !isGracePeriod) {
+                stopSystem();
+                return;
+            }
+            
+            // 2. SHAKE: (Reset during monitoring OR Resume during grace)
+            let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+            if (totalAcc > 18) {
+                if (isGracePeriod) {
+                    armSystem(); // Resume
+                } else {
+                    resetTimer(); // Reset volume/timer
+                }
+            }
         }
 
         function resetTimer() {
@@ -141,6 +150,7 @@
             clearInterval(fadeInterval);
             player.volume = 1.0;
             targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
+            updateStatus("MONITORING", true);
             masterTimer = setTimeout(startFade, (sleepMinutes * 60 * 1000) - 30000);
         }
 
