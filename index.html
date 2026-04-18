@@ -109,7 +109,9 @@
             player.load();
         }
 
-        player.onended = function() {
+player.onended = function() {
+            if (systemState !== 'ARMED') return; 
+            
             currentIndex++;
             if (currentIndex < playlist.length) {
                 loadTrack(currentIndex);
@@ -197,18 +199,28 @@
             s.style.color = active ? "#00ff00" : "#888";
         }
 
+// FIXED: Hard stop logic
         function stopSystem() {
             player.pause();
+            player.currentTime = 0; // Reset track to start
+            
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
             clearTimeout(masterTimer);
-            if (wakeLock) { wakeLock.release(); wakeLock = null; }
+            
+            if (wakeLock) { 
+                wakeLock.release(); 
+                wakeLock = null; 
+            }
             
             systemState = 'GRACE';
             updateStatus("PAUSED (5M GRACE)", false);
+            
+            // Toggle Buttons
             document.getElementById('startBtn').style.display = 'block';
             document.getElementById('stopBtn').style.display = 'none';
             
+            // Clear Grace Period logic
             clearTimeout(graceTimer);
             graceTimer = setTimeout(() => {
                 systemState = 'IDLE';
