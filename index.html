@@ -66,12 +66,9 @@
         let currentIndex = 0;
         let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer;
         let wakeLock = null;
-        
-        // System State Machine
-        let systemState = 'IDLE'; // 'ARMED', 'GRACE', 'IDLE'
+        let systemState = 'IDLE'; 
         let graceTimer = null;
 
-        // Init Motion Listener immediately so it is always active
         window.addEventListener('devicemotion', handleMotion);
 
         function adjustTime(delta) {
@@ -109,9 +106,8 @@
             player.load();
         }
 
-player.onended = function() {
-            if (systemState !== 'ARMED') return; 
-            
+        player.onended = function() {
+            if (systemState !== 'ARMED') return;
             currentIndex++;
             if (currentIndex < playlist.length) {
                 loadTrack(currentIndex);
@@ -143,22 +139,13 @@ player.onended = function() {
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
+            if (acc.z < -8 && systemState === 'ARMED') stopSystem();
+            else if (acc.z > 8 && systemState === 'GRACE') resumeSystem();
 
-            // Turn Over Gestures
-            if (acc.z < -8 && systemState === 'ARMED') {
-                stopSystem();
-            } else if (acc.z > 8 && systemState === 'GRACE') {
-                resumeSystem();
-            }
-
-            // Shake Gestures
             let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
             if (totalAcc > 18) {
-                if (systemState === 'ARMED') {
-                    resetTimer();
-                } else if (systemState === 'GRACE') {
-                    resumeSystem();
-                }
+                if (systemState === 'ARMED') resetTimer();
+                else if (systemState === 'GRACE') resumeSystem();
             }
         }
 
@@ -187,10 +174,7 @@ player.onended = function() {
             document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
             document.getElementById('trackProgress').innerText = 
                 `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
-            
-            if (playlist[currentIndex]) {
-                document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
-            }
+            if (playlist[currentIndex]) document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
         }
 
         function updateStatus(msg, active) {
@@ -199,28 +183,20 @@ player.onended = function() {
             s.style.color = active ? "#00ff00" : "#888";
         }
 
-// FIXED: Hard stop logic
         function stopSystem() {
-            player.pause();
-            player.currentTime = 0; // Reset track to start
+            // FIXED: Removed player.currentTime = 0;
+            player.pause(); 
             
             clearInterval(displayInterval);
             clearInterval(fadeInterval);
             clearTimeout(masterTimer);
-            
-            if (wakeLock) { 
-                wakeLock.release(); 
-                wakeLock = null; 
-            }
+            if (wakeLock) { wakeLock.release(); wakeLock = null; }
             
             systemState = 'GRACE';
             updateStatus("PAUSED (5M GRACE)", false);
-            
-            // Toggle Buttons
             document.getElementById('startBtn').style.display = 'block';
             document.getElementById('stopBtn').style.display = 'none';
             
-            // Clear Grace Period logic
             clearTimeout(graceTimer);
             graceTimer = setTimeout(() => {
                 systemState = 'IDLE';
@@ -231,7 +207,7 @@ player.onended = function() {
         function resumeSystem() {
             clearTimeout(graceTimer);
             systemState = 'ARMED';
-            player.play();
+            player.play(); // Resumes from previous spot automatically
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
             resetTimer();
