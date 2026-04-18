@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player LIGHT + Queue</title>
-    <link rel="manifest" href="manifest.json">
+    <title>Sleep Player LIGHT</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
@@ -37,9 +36,9 @@
     <div id="timeLeft">00:00</div>
 
     <div style="display: flex; align-items: center; justify-content: center;">
-        <button class="adj-btn" onclick="adjustTime(-1)">-</button>
-        <span id="timeVal" class="val">12</span>
-        <button class="adj-btn" onclick="adjustTime(1)">+</button>
+        <button class="adj-btn" onclick="adjustTime(-0.1)">-</button>
+        <span id="timeVal" class="val">0.5</span>
+        <button class="adj-btn" onclick="adjustTime(0.1)">+</button>
     </div>
 
     <div class="nav-grid">
@@ -60,14 +59,23 @@
     <button id="stopBtn" class="stop-btn" onclick="stopSystem()">STOP</button>
 
     <script>
+        // --- TESTING CONFIG ---
+        let sleepMinutes = 0.5; // DEFAULT
+        const TIME_INCREMENT = 0.1; // INCREMENTS
+        const FADE_DURATION = 15; // SECONDS
+        const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 MINUTES
+        // ----------------------
+
         let player = new Audio();
         let playlist = [];
         let currentIndex = 0;
-        let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer;
+        let targetEndTime, displayInterval, fadeInterval, masterTimer;
         let wakeLock = null;
+        let isGracePeriod = false;
+        let graceTimeout = null;
 
         function adjustTime(delta) {
-            sleepMinutes = Math.max(1, sleepMinutes + delta);
+            sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + delta) * 10) / 10);
             document.getElementById('timeVal').innerText = sleepMinutes;
         }
 
@@ -87,10 +95,8 @@
         function handleFile(input) {
             playlist = Array.from(input.files);
             if (playlist.length === 0) return;
-            
             currentIndex = 0;
             loadTrack(currentIndex);
-            
             const label = document.getElementById('fileLabel');
             label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
             label.classList.add('loaded');
@@ -103,21 +109,26 @@
             player.load();
         }
 
-        // AUTO-ADVANCE LOGIC
         player.onended = function() {
             currentIndex++;
             if (currentIndex < playlist.length) {
                 loadTrack(currentIndex);
                 player.play();
             } else {
-                updateStatus("END OF QUEUE", false);
+                stopSystem();
             }
         };
 
         async function armSystem() {
             if (playlist.length === 0) return alert("Select files.");
+            
+            // If we are in grace period, just resume
+            if (isGracePeriod) {
+                resumeSystem();
+                return;
+            }
+
             try { 
-                // iOS Motion Permission Request
                 if (typeof DeviceMotionEvent.requestPermission === 'function') {
                     const permission = await DeviceMotionEvent.requestPermission();
                     if (permission !== 'granted') return alert("Motion permission required.");
@@ -134,11 +145,29 @@
             displayInterval = setInterval(updateDisplay, 1000);
         }
 
+        function resumeSystem() {
+            clearTimeout(graceTimeout);
+            isGracePeriod = false;
+            player.play();
+            updateStatus("RESUMED", true);
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'block';
+            resetTimer();
+        }
+
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (acc.z < -8) stopSystem();
-            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) resetTimer();
+            
+            // Shake detected (Reset or Resume)
+            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) {
+                if (isGracePeriod) resumeSystem();
+                else resetTimer();
+            }
+            // Turnover detected (Stop)
+            else if (acc.z < -8 && !isGracePeriod) {
+                stopSystem();
+            }
         }
 
         function resetTimer() {
@@ -147,17 +176,35 @@
             player.volume = 1.0;
             targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
             updateStatus("MONITORING", true);
-            masterTimer = setTimeout(startFade, (sleepMinutes * 60 * 1000) - 30000);
+            masterTimer = setTimeout(startFade, (sleepMinutes * 60 * 1000) - (FADE_DURATION * 1000));
         }
 
         function startFade() {
             updateStatus("FADING...", false);
-            let steps = 30;
+            let steps = FADE_DURATION;
             fadeInterval = setInterval(() => {
                 steps--;
-                player.volume = Math.max(0, steps / 30);
+                player.volume = Math.max(0, steps / FADE_DURATION);
                 if (steps <= 0) stopSystem();
             }, 1000);
+        }
+
+        function stopSystem() {
+            player.pause();
+            clearInterval(displayInterval);
+            clearInterval(fadeInterval);
+            clearTimeout(masterTimer);
+            
+            // Enter Grace Period instead of full stop
+            isGracePeriod = true;
+            updateStatus("PAUSED - GRACE", false);
+            
+            // Set timeout to eventually stop after 5 mins
+            graceTimeout = setTimeout(() => {
+                isGracePeriod = false;
+                if (wakeLock) { wakeLock.release(); wakeLock = null; }
+                updateStatus("STOPPED", false);
+            }, GRACE_PERIOD_MS);
         }
 
         function updateDisplay() {
@@ -167,7 +214,6 @@
             document.getElementById('trackProgress').innerText = 
                 `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
             
-            // Show current file name in the box during playback
             if (playlist[currentIndex]) {
                 document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
             }
@@ -178,25 +224,6 @@
             s.innerText = msg;
             s.style.color = active ? "#00ff00" : "#888";
         }
-
-        function stopSystem() {
-            player.pause();
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            if (wakeLock) wakeLock.release();
-            window.removeEventListener('devicemotion', handleMotion);
-            document.getElementById('startBtn').style.display = 'block';
-            document.getElementById('stopBtn').style.display = 'none';
-            updateStatus("STOPPED", false);
-        }
-
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js');
-            });
-        }
     </script>
 </body>
 </html>
-
