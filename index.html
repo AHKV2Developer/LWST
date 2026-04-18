@@ -52,16 +52,22 @@
         let player = new Audio();
         let playlist = [], currentIndex = 0;
         let sleepMinutes = 0.2, targetEndTime, displayInterval, fadeInterval, masterTimer;
-        let wakeLock = null;
-        let isGracePeriod = false, graceTimeout = null;
+        let wakeLock = null, isGracePeriod = false, graceTimeout = null;
+        let lastShakeTime = 0; 
 
         function adjustTime(delta) {
             sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + delta) * 10) / 10);
             document.getElementById('timeVal').innerText = sleepMinutes;
         }
 
-        function seek(s) { if(player.src) player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + s)); }
+        function seek(s) { if(player.src) { player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + s)); updateDisplay(); } }
         
+        function formatTime(s) {
+            if (isNaN(s)) return "0:00";
+            let m = Math.floor(s / 60), sec = Math.floor(s % 60);
+            return `${m}:${sec.toString().padStart(2, '0')}`;
+        }
+
         function handleFile(input) {
             playlist = Array.from(input.files);
             if (playlist.length === 0) return;
@@ -98,21 +104,28 @@
             }, 300000); 
         }
 
+        function resumeSystem() {
+            clearTimeout(graceTimeout);
+            isGracePeriod = false;
+            player.play();
+            updateStatus("RESUMED", true);
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('stopBtn').style.display = 'block';
+            resetTimer();
+            displayInterval = setInterval(updateDisplay, 1000);
+        }
+
         async function armSystem() {
             if (playlist.length === 0) return alert("Select files.");
+            if (isGracePeriod) return resumeSystem();
 
-            if (isGracePeriod) {
-                clearTimeout(graceTimeout);
-                isGracePeriod = false;
-            } else {
-                try { 
-                    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                        const permission = await DeviceMotionEvent.requestPermission();
-                        if (permission !== 'granted') return alert("Motion permission required.");
-                    }
-                    wakeLock = await navigator.wakeLock.request('screen'); 
-                } catch(e){}
-            }
+            try { 
+                if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') return alert("Motion permission required.");
+                }
+                wakeLock = await navigator.wakeLock.request('screen'); 
+            } catch(e){}
 
             player.play();
             updateStatus("ARMED", true);
@@ -128,20 +141,21 @@
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
             
-            // 1. STOP: Only if face down AND NOT in grace period
-            if (acc.z < -8 && !isGracePeriod) {
-                stopSystem();
+            let now = Date.now();
+            let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+
+            // Priority 1: SHAKE (With Lockout)
+            if (totalAcc > 25) { 
+                lastShakeTime = now;
+                if (isGracePeriod) resumeSystem();
+                else resetTimer();
                 return;
             }
             
-            // 2. SHAKE: (Reset during monitoring OR Resume during grace)
-            let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
-            if (totalAcc > 18) {
-                if (isGracePeriod) {
-                    armSystem(); // Resume
-                } else {
-                    resetTimer(); // Reset volume/timer
-                }
+            // Priority 2: TURNOVER (With 500ms buffer after shake)
+            if (now - lastShakeTime > 500) {
+                if (acc.z < -8 && !player.paused) stopSystem();
+                if (acc.z > 8 && isGracePeriod) resumeSystem();
             }
         }
 
@@ -168,6 +182,7 @@
             const diff = Math.max(0, targetEndTime - Date.now());
             const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
             document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+            document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
         }
     </script>
 </body>
