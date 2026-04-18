@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player LIGHT</title>
+    <title>Sleep Player LIGHT + Queue</title>
+    <link rel="manifest" href="manifest.json">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
@@ -10,12 +11,22 @@
         #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
         .val { font-size: 40px; font-weight: bold; color: #00ff00; }
         .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
+
         .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
         .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; padding: 0; line-height: 1; }
+        
         #trackProgress { font-size: 18px; font-family: monospace; color: #aaa; margin-bottom: 10px; }
+
         #fileInput { display: none; }
-        .file-label { display: flex; align-items: center; justify-content: center; height: 75px; width: 90%; margin: 8px auto; padding: 0 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; font-size: 20px; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+        .file-label { 
+            display: flex; align-items: center; justify-content: center;
+            height: 75px; width: 90%; margin: 8px auto; padding: 0 15px;
+            border: 1px dashed #444; border-radius: 12px; cursor: pointer; 
+            background: #111; font-size: 20px; font-weight: normal; 
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box;
+        }
         .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
+
         .arm-btn { display: block; width: 90%; height: 75px; font-size: 25px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; }
         .stop-btn { display: none; width: 90%; height: 75px; font-size: 20px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
     </style>
@@ -26,9 +37,9 @@
     <div id="timeLeft">00:00</div>
 
     <div style="display: flex; align-items: center; justify-content: center;">
-        <button class="adj-btn" onclick="adjustTime(-0.1)">-</button>
-        <span id="timeVal" class="val">0.2</span>
-        <button class="adj-btn" onclick="adjustTime(0.1)">+</button>
+        <button class="adj-btn" onclick="adjustTime(-1)">-</button>
+        <span id="timeVal" class="val">12</span>
+        <button class="adj-btn" onclick="adjustTime(1)">+</button>
     </div>
 
     <div class="nav-grid">
@@ -50,94 +61,74 @@
 
     <script>
         let player = new Audio();
-        let playlist = [], currentIndex = 0;
-        let sleepMinutes = 0.2, targetEndTime, displayInterval, fadeInterval, masterTimer;
-        let wakeLock = null, isGracePeriod = false, graceTimeout = null;
-        let lastShakeTime = 0; 
+        let playlist = [];
+        let currentIndex = 0;
+        let sleepMinutes = 12, targetEndTime, displayInterval, fadeInterval, masterTimer;
+        let wakeLock = null;
 
         function adjustTime(delta) {
-            sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + delta) * 10) / 10);
+            sleepMinutes = Math.max(1, sleepMinutes + delta);
             document.getElementById('timeVal').innerText = sleepMinutes;
         }
 
-        function seek(s) { if(player.src) { player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + s)); updateDisplay(); } }
-        
+        function seek(seconds) {
+            if (!player.src) return;
+            player.currentTime = Math.max(0, Math.min(player.duration, player.currentTime + seconds));
+            updateDisplay();
+        }
+
         function formatTime(s) {
             if (isNaN(s)) return "0:00";
-            let m = Math.floor(s / 60), sec = Math.floor(s % 60);
-            return `${m}:${sec.toString().padStart(2, '0')}`;
+            let mins = Math.floor(s / 60);
+            let secs = Math.floor(s % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
         }
 
         function handleFile(input) {
             playlist = Array.from(input.files);
             if (playlist.length === 0) return;
+            
             currentIndex = 0;
-            player.src = URL.createObjectURL(playlist[0]);
-            document.getElementById('fileLabel').innerText = playlist[0].name;
-            document.getElementById('fileLabel').classList.add('loaded');
+            loadTrack(currentIndex);
+            
+            const label = document.getElementById('fileLabel');
+            label.innerText = playlist.length > 1 ? `${playlist.length} FILES LOADED` : playlist[0].name;
+            label.classList.add('loaded');
             updateStatus("READY", false);
         }
 
-        function updateStatus(msg, active) {
-            const s = document.getElementById('status');
-            s.innerText = msg;
-            s.style.color = active ? "#00ff00" : "#888";
+        function loadTrack(index) {
+            if (index >= playlist.length) return;
+            player.src = URL.createObjectURL(playlist[index]);
+            player.load();
         }
 
-        function stopSystem() {
-            if (player.paused) return; // Prevent double firing
-            
-            player.pause();
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            if (wakeLock) { wakeLock.release(); wakeLock = null; }
-            
-            document.getElementById('startBtn').style.display = 'block';
-            document.getElementById('stopBtn').style.display = 'none';
-            
-            isGracePeriod = true;
-            updateStatus("PAUSED - GRACE", false);
-            
-            clearTimeout(graceTimeout);
-            graceTimeout = setTimeout(() => {
-                isGracePeriod = false;
-                updateStatus("STOPPED", false);
-            }, 300000); 
-        }
-
-        function resumeSystem() {
-            if (!player.paused) return;
-            
-            clearTimeout(graceTimeout);
-            isGracePeriod = false;
-            player.volume = 1.0; // Reset volume
-            player.play();       // Pure resume
-            
-            updateStatus("RESUMED", true);
-            document.getElementById('startBtn').style.display = 'none';
-            document.getElementById('stopBtn').style.display = 'block';
-            resetTimer();
-            displayInterval = setInterval(updateDisplay, 1000);
-        }
+        // AUTO-ADVANCE LOGIC
+        player.onended = function() {
+            currentIndex++;
+            if (currentIndex < playlist.length) {
+                loadTrack(currentIndex);
+                player.play();
+            } else {
+                updateStatus("END OF QUEUE", false);
+            }
+        };
 
         async function armSystem() {
             if (playlist.length === 0) return alert("Select files.");
-            if (isGracePeriod) return resumeSystem();
-
             try { 
+                // iOS Motion Permission Request
                 if (typeof DeviceMotionEvent.requestPermission === 'function') {
                     const permission = await DeviceMotionEvent.requestPermission();
                     if (permission !== 'granted') return alert("Motion permission required.");
                 }
                 wakeLock = await navigator.wakeLock.request('screen'); 
             } catch(e){}
-
+            
             player.play();
             updateStatus("ARMED", true);
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
-            
             resetTimer();
             window.addEventListener('devicemotion', handleMotion);
             displayInterval = setInterval(updateDisplay, 1000);
@@ -146,23 +137,8 @@
         function handleMotion(e) {
             let acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            
-            let now = Date.now();
-            let totalAcc = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
-
-            // Priority 1: SHAKE (With Lockout)
-            if (totalAcc > 25) { 
-                lastShakeTime = now;
-                if (isGracePeriod) resumeSystem();
-                else resetTimer();
-                return;
-            }
-            
-            // Priority 2: TURNOVER (With 500ms buffer after shake)
-            if (now - lastShakeTime > 500) {
-                if (acc.z < -8 && !player.paused) stopSystem();
-                if (acc.z > 8 && isGracePeriod) resumeSystem();
-            }
+            if (acc.z < -8) stopSystem();
+            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) resetTimer();
         }
 
         function resetTimer() {
@@ -188,8 +164,39 @@
             const diff = Math.max(0, targetEndTime - Date.now());
             const m = Math.floor(diff / 60000), s = Math.floor((diff % 60000) / 1000);
             document.getElementById('timeLeft').innerText = `${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-            document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+            document.getElementById('trackProgress').innerText = 
+                `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+            
+            // Show current file name in the box during playback
+            if (playlist[currentIndex]) {
+                document.getElementById('fileLabel').innerText = `PLAYING: ${playlist[currentIndex].name}`;
+            }
+        }
+
+        function updateStatus(msg, active) {
+            const s = document.getElementById('status');
+            s.innerText = msg;
+            s.style.color = active ? "#00ff00" : "#888";
+        }
+
+        function stopSystem() {
+            player.pause();
+            clearInterval(displayInterval);
+            clearInterval(fadeInterval);
+            clearTimeout(masterTimer);
+            if (wakeLock) wakeLock.release();
+            window.removeEventListener('devicemotion', handleMotion);
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            updateStatus("STOPPED", false);
+        }
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js');
+            });
         }
     </script>
 </body>
 </html>
+
