@@ -27,7 +27,7 @@
         .file-label.loaded { border: 1px solid #2a5a2a; background: #0d1a0d; color: #fff; }
 
         .arm-btn { display: block; width: 90%; height: 75px; font-size: 25px; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; border-radius: 12px; font-weight: bold; letter-spacing: 2px; margin: 8px auto; }
-        .stop-btn { display: none; width: 90%; height: 75px; font-size: 20px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
+        .stop-btn { display: none; width: 90%; height: 75px; font-size: 25px; background: #500; color: white; border: none; border-radius: 12px; margin: 8px auto; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -60,10 +60,9 @@
 
     <script>
         // --- TESTING CONFIG ---
-        let sleepMinutes = 0.5; // DEFAULT
-        const TIME_INCREMENT = 0.1; // INCREMENTS
-        const FADE_DURATION = 15; // SECONDS
-        const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 MINUTES
+        let sleepMinutes = 0.5; 
+        const GRACE_PERIOD_MS = 5 * 60 * 1000; 
+        const FADE_DURATION = 15; 
         // ----------------------
 
         let player = new Audio();
@@ -122,7 +121,7 @@
         async function armSystem() {
             if (playlist.length === 0) return alert("Select files.");
             
-            // If we are in grace period, just resume
+            // Logic: If already in Grace Period, just resume
             if (isGracePeriod) {
                 resumeSystem();
                 return;
@@ -150,9 +149,30 @@
             isGracePeriod = false;
             player.play();
             updateStatus("RESUMED", true);
+            // Toggle Buttons
             document.getElementById('startBtn').style.display = 'none';
             document.getElementById('stopBtn').style.display = 'block';
             resetTimer();
+        }
+
+        function stopSystem() {
+            player.pause();
+            clearInterval(displayInterval);
+            clearInterval(fadeInterval);
+            clearTimeout(masterTimer);
+            
+            // Toggle Buttons
+            document.getElementById('startBtn').style.display = 'block';
+            document.getElementById('stopBtn').style.display = 'none';
+            
+            isGracePeriod = true;
+            updateStatus("PAUSED - GRACE", false);
+            
+            graceTimeout = setTimeout(() => {
+                isGracePeriod = false;
+                if (wakeLock) { wakeLock.release(); wakeLock = null; }
+                updateStatus("STOPPED", false);
+            }, GRACE_PERIOD_MS);
         }
 
         function handleMotion(e) {
@@ -187,24 +207,6 @@
                 player.volume = Math.max(0, steps / FADE_DURATION);
                 if (steps <= 0) stopSystem();
             }, 1000);
-        }
-
-        function stopSystem() {
-            player.pause();
-            clearInterval(displayInterval);
-            clearInterval(fadeInterval);
-            clearTimeout(masterTimer);
-            
-            // Enter Grace Period instead of full stop
-            isGracePeriod = true;
-            updateStatus("PAUSED - GRACE", false);
-            
-            // Set timeout to eventually stop after 5 mins
-            graceTimeout = setTimeout(() => {
-                isGracePeriod = false;
-                if (wakeLock) { wakeLock.release(); wakeLock = null; }
-                updateStatus("STOPPED", false);
-            }, GRACE_PERIOD_MS);
         }
 
         function updateDisplay() {
