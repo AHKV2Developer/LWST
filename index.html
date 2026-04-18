@@ -2,18 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Sleep Player v3</title>
+    <title>Sleep Player v4</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
-        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; overflow: hidden; }
-        #status { font-size: 13px; color: #888; margin: 5px 0; letter-spacing: 1px; height: 1.2em; text-transform: uppercase; }
-        #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; margin: 2px 0; }
+        body { font-family: sans-serif; background: #0a0a0a; color: #d0d0d0; text-align: center; padding: 10px; margin: 0; }
+        #status { font-size: 13px; color: #888; margin: 5px 0; text-transform: uppercase; }
+        #timeLeft { font-size: 48px; font-family: monospace; color: #00ff00; }
         .val { font-size: 40px; font-weight: bold; color: #00ff00; }
-        .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; vertical-align: middle; }
-        .nav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
-        .nav-btn { height: 50px; font-size: 20px; background: #1a1a1a; border: 1px solid #333; color: #aaa; border-radius: 8px; }
+        .adj-btn { width: 60px; height: 60px; font-size: 48px; border-radius: 50%; background: #222; color: white; border: 1px solid #444; margin: 5px 15px; }
         #trackProgress { font-size: 18px; font-family: monospace; color: #aaa; margin: 10px 0; }
-        .file-label { display: block; width: 90%; margin: 10px auto; padding: 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .file-label { display: block; width: 90%; margin: 10px auto; padding: 15px; border: 1px dashed #444; border-radius: 12px; cursor: pointer; background: #111; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .action-btn { display: none; width: 90%; height: 75px; font-size: 25px; border-radius: 12px; font-weight: bold; margin: 10px auto; border: none; }
         #armBtn { display: block; background: #1a3a1a; color: white; border: 2px solid #2a5a2a; }
         #stopBtn { background: #500; color: white; }
@@ -30,21 +28,12 @@
         <button class="adj-btn" onclick="adjustTime(0.1)">+</button>
     </div>
 
-    <div class="nav-grid">
-        <button class="nav-btn" onclick="seek(-600)">-10m</button>
-        <button class="nav-btn" onclick="seek(-120)">-2m</button>
-        <button class="nav-btn" onclick="seek(-15)">-15s</button>
-        <button class="nav-btn" onclick="seek(15)">+15s</button>
-        <button class="nav-btn" onclick="seek(120)">+2m</button>
-        <button class="nav-btn" onclick="seek(600)">+10m</button>
-    </div>
-
     <div id="trackProgress">0:00 / 0:00</div>
     <input type="file" id="fileInput" style="display:none" accept="audio/*" multiple onchange="handleFile(this)">
     <label for="fileInput" class="file-label" id="fileLabel">SELECT FILES</label>
     
-    <button id="armBtn" class="action-btn" onclick="handleARM()">ARM</button>
-    <button id="stopBtn" class="action-btn" onclick="handleTurnover(true)">PAUSE</button>
+    <button id="armBtn" class="action-btn" onclick="armSystem()">ARM</button>
+    <button id="stopBtn" class="action-btn" onclick="forcePause()">PAUSE</button>
 
     <script>
         const State = { IDLE: 'IDLE', PLAYING: 'PLAYING', PAUSED: 'PAUSED', FADING: 'FADING' };
@@ -54,7 +43,6 @@
         let playlist = [];
         let currentIndex = 0;
         let sleepMinutes = 0.5, targetEndTime, graceTimer, fadeInterval;
-        let wakeLock = null;
 
         // --- CORE LOGIC ---
         function transitionTo(newState) {
@@ -64,97 +52,85 @@
             document.getElementById('stopBtn').style.display = (newState === State.PLAYING || newState === State.FADING) ? 'block' : 'none';
         }
 
-        function handleARM() {
-            if (playlist.length === 0) return alert("Select files.");
-            if (currentState === State.IDLE) {
-                targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
-                requestWakeLock();
-                player.play();
-                transitionTo(State.PLAYING);
-            } else if (currentState === State.PAUSED) {
-                clearTimeout(graceTimer);
-                player.play();
-                transitionTo(State.PLAYING);
-            } else if (currentState === State.FADING) {
-                hardStop();
+        // Direct Pause Handler
+        function forcePause() {
+            console.log("Force Pause Triggered");
+            player.pause();
+            if (currentState !== State.PAUSED) {
+                graceTimer = setTimeout(hardStop, 5 * 60 * 1000);
+                transitionTo(State.PAUSED);
             }
         }
 
-        function handleTurnover(isFaceDown) {
-            if (isFaceDown) {
-                if (currentState === State.PLAYING || currentState === State.FADING) {
-                    player.pause();
-                    graceTimer = setTimeout(hardStop, 5 * 60 * 1000);
-                    transitionTo(State.PAUSED);
-                }
-            } else {
-                if (currentState === State.PAUSED) {
-                    clearTimeout(graceTimer);
-                    player.play();
-                    transitionTo(State.PLAYING);
-                }
-            }
+        function armSystem() {
+            if (playlist.length === 0) return alert("Select files.");
+            targetEndTime = Date.now() + (sleepMinutes * 60 * 1000);
+            player.play();
+            transitionTo(State.PLAYING);
         }
 
         function hardStop() {
             player.pause();
-            if (wakeLock) { wakeLock.release(); wakeLock = null; }
             transitionTo(State.IDLE);
         }
 
-        // --- HELPERS ---
-        function formatTime(s) {
-            let m = Math.floor(s/60), sec = Math.floor(s%60);
-            return `${m}:${sec.toString().padStart(2,'0')}`;
-        }
-
-        function updateDisplay() {
-            // Timer
-            if(currentState === State.PLAYING || currentState === State.FADING) {
-                const diff = Math.max(0, targetEndTime - Date.now());
-                document.getElementById('timeLeft').innerText = `${Math.floor(diff/60000)}:${Math.floor((diff%60000)/1000).toString().padStart(2,'0')}`;
+        // --- PLAYLIST LOGIC ---
+        player.onended = () => {
+            currentIndex++;
+            if (currentIndex < playlist.length) {
+                player.src = URL.createObjectURL(playlist[currentIndex]);
+                player.play();
+            } else {
+                hardStop();
             }
-            // Progress
-            const dur = isNaN(player.duration) ? 0 : player.duration;
-            document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(dur)}`;
-        }
+        };
 
         function handleFile(input) { 
             playlist = Array.from(input.files); 
             if (playlist.length > 0) {
+                currentIndex = 0;
                 player.src = URL.createObjectURL(playlist[0]);
                 document.getElementById('fileLabel').innerText = playlist[0].name;
             }
         }
 
-        function adjustTime(d) { sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + d)*10)/10); document.getElementById('timeVal').innerText = sleepMinutes; }
-        function seek(s) { player.currentTime += s; updateDisplay(); }
+        player.onloadedmetadata = () => {
+            updateDisplay();
+        };
 
-        // --- EVENTS ---
-        player.onloadedmetadata = updateDisplay;
-        player.ontimeupdate = updateDisplay;
+        // --- UI & UPDATES ---
+        function formatTime(s) {
+            if (isNaN(s)) return "0:00";
+            let m = Math.floor(s/60), sec = Math.floor(s%60);
+            return `${m}:${sec.toString().padStart(2,'0')}`;
+        }
 
+        function updateDisplay() {
+            if(currentState === State.PLAYING || currentState === State.FADING) {
+                const diff = Math.max(0, targetEndTime - Date.now());
+                document.getElementById('timeLeft').innerText = `${Math.floor(diff/60000)}:${Math.floor((diff%60000)/1000).toString().padStart(2,'0')}`;
+            }
+            document.getElementById('trackProgress').innerText = `${formatTime(player.currentTime)} / ${formatTime(player.duration)}`;
+        }
+
+        function adjustTime(d) { 
+            sleepMinutes = Math.max(0.1, Math.round((sleepMinutes + d)*10)/10); 
+            document.getElementById('timeVal').innerText = sleepMinutes; 
+        }
+
+        setInterval(updateDisplay, 1000);
+        
+        // --- SENSORS ---
         window.addEventListener('devicemotion', (e) => {
             const acc = e.accelerationIncludingGravity;
             if (!acc) return;
-            if (Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z) > 18) { /* Optional: add shake logic */ }
-            if (acc.z < -8) handleTurnover(true);
-            else if (acc.z > 8) handleTurnover(false);
-        });
-
-        setInterval(() => {
-            if (currentState === State.PLAYING && Date.now() >= targetEndTime) {
-                transitionTo(State.FADING);
-                let vol = 1.0;
-                fadeInterval = setInterval(() => {
-                    vol -= 0.1;
-                    if (vol <= 0) { player.pause(); transitionTo(State.PAUSED); clearInterval(fadeInterval); }
-                    else player.volume = vol;
-                }, 1500);
+            if (acc.z < -8 && (currentState === State.PLAYING || currentState === State.FADING)) forcePause();
+            else if (acc.z > 8 && currentState === State.PAUSED) {
+                clearTimeout(graceTimer);
+                player.play();
+                transitionTo(State.PLAYING);
             }
-        }, 1000);
-
-        async function requestWakeLock() { try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {} }
+        });
     </script>
 </body>
 </html>
